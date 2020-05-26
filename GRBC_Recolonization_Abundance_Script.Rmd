@@ -1,0 +1,587 @@
+---
+title: "GRBC_Abundance_Recolonization"
+author: "Dylan Baker"
+date: "2/26/2020"
+output:
+  html_document:
+    code_folding: hide
+    highlight: haddock
+    keep_md: yes
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+      toc_depth: 3
+  pdf_document:
+    toc: yes
+---
+```{r}
+require("knitr")
+## Loading required package: knitr
+
+knitr::opts_chunk$set(eval = TRUE, 
+                      echo = TRUE, 
+                      cache = FALSE,
+                      include = TRUE,
+                      collapse = FALSE,
+                      message=FALSE,
+                      warning=FALSE,
+                      dependson = NULL,
+                      engine = "R", # Chunks will always have R code, unless noted
+                      error = TRUE,
+                      #Figure options
+                      dev = c("png", "pdf"),
+                      fig.path="outfiles_demo/",  
+                      fig.align = "center", 
+                      fig.width = 8,
+                      fig.height = 6
+)
+
+```
+``` {r setup}
+library(dplyr) 
+library(reshape2)
+library(data.table)
+library(readr)
+library(tidyverse)
+library(stringr)
+library(purrr)
+library(broom)
+library(phyloseq)
+library(uniformly)
+library(gtools)
+library(gridExtra)
+library(ggpubr)
+library(igraph)
+#set seed so all random number generation is the same
+set.seed(05042019)
+
+#Set a good color palette
+#https://stackoverflow.com/questions/15282580/how-to-generate-a-number-of-most-distinctive-colors-in-r?answertab=active#tab-top
+get_random_distinct_colors <- function(ncolor,seed = sample_seq(1, 1000000, 1)) {
+  require(uniformly)
+  set.seed(seed)
+  rgb_mat <- runif_in_cube(n=ncolor,d=3,O=rep(0.5,3),r=0.5)
+  rgb(r=rgb_mat[,1],g=rgb_mat[,2],b=rgb_mat[,3])
+}
+
+
+#https://martin.ankerl.com/2009/12/09/how-to-create-random-colors-programmatically/
+
+get_distinct_hues <- function(ncolor,s=0.5,v=0.95,seed=40) {
+  golden_ratio_conjugate <- 0.618033988749895
+  set.seed(seed)
+  h <- runif(1)
+  H <- vector("numeric",ncolor)
+  for(i in seq_len(ncolor)) {
+    h <- (h + golden_ratio_conjugate) %% 1
+    H[i] <- h
+  }
+  hsv(H,s=s,v=v)
+}
+
+get_random_grid_colors <- function(ncolor,seed = sample_seq(1, 1000000, 1)) {
+  require(uniformly)
+  set.seed(seed)
+  print(seed)
+  ngrid <- ceiling(ncolor^(1/3))
+  x <- seq(0,1,length=ngrid+1)[1:ngrid]
+  dx <- (x[2] - x[1])/2
+  x <- x + dx
+  origins <- expand.grid(x,x,x)
+  nbox <- nrow(origins) 
+  RGB <- vector("numeric",nbox)
+  for(i in seq_len(nbox)) {
+    rgb <- runif_in_cube(n=1,d=3,O=as.numeric(origins[i,]),r=dx)
+    RGB[i] <- rgb(rgb[1,1],rgb[1,2],rgb[1,3])
+  }
+  index <- sample(seq(1,nbox),ncolor)
+  RGB[index]
+} 
+
+```
+
+``` {r Import}
+
+#Create a list of jar numbers and their respective host species.
+jar_num <- as_tibble(paste0("J", 1:45, "-")) %>%
+  rename("jar_no" = value) %>%
+  mutate(host_species = ifelse(str_detect(jar_no, paste0("J", 1:9, "-")), "Chlorella",
+                        ifelse(str_detect(jar_no, paste0("J", 10:18, "-")), "Coelastrum",
+                        ifelse(str_detect(jar_no, paste0("J", 19:27, "-")), "Scenedesmus",
+                        ifelse(str_detect(jar_no, paste0("J", 28:36, "-")), "Monoraphidium",
+                        ifelse(str_detect(jar_no, paste0("J", 37:45, "-")), "Selenastrum", "")))))) %>%
+  mutate(triplicate = for (i in 1:15) {
+    for (j in -2:0) {
+      
+      
+    }
+  })
+jar_no_grbc <- read_csv(file = "Jar_Number_Correction.csv", na = "empty") %>%
+  mutate(jar = paste0(jar_no, "-")) %>%
+  select(Isolate_Number, jar)
+
+#Remove confidence scores at the end of each taxonomic ran
+#Import the data
+GRBC_Silva_132_tax <- read_tsv(file="GRBC_renamed.nr_v132.wang.taxonomy") %>%
+		rename_all(tolower) %>%  mutate(taxonomy=str_replace_all(string=taxonomy, pattern="\\(\\d*\\)", replacement="")) %>%
+		mutate(taxonomy=str_replace_all(string=taxonomy , pattern=";$", replacement="")) %>%
+		separate(taxonomy, into=c("domain", "phylum", "class", "order", "family", "genus"), sep=";") %>%
+  inner_join(jar_no_grbc, by = c("otu" = "Isolate_Number")) %>%
+  #Filter out genera that were not in the database, not helpful for our analysis
+  filter(!str_detect(genus, "unclassified")) %>%
+  filter(!str_detect(genus, "uncultured")) %>%
+  select("otu", "jar", everything()) %>%
+  #Replace DF with D31
+  lapply(function(x) {
+    gsub("DF", "D31", x)
+  }) %>%
+  as.tibble(.) %>%
+  mutate(host_species = ifelse(str_detect(jar, paste(jar_num$jar_no[1:9], collapse = "|")), "Chlorella",
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[10:18], collapse = "|")), "Coelastrum",
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[19:27], collapse = "|")), "Scenedesmus",
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[28:36], collapse = "|")), "Monoraphidium",
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[37:45], collapse = "|")), "Selenastrum", "NA"))))))
+
+GRBC_Freshwater2016_tax <- read_tsv(file="GRBC_renamed.FreshTrain18Aug2016.wang.taxonomy") %>%
+		rename_all(tolower) %>%  mutate(taxonomy=str_replace_all(string=taxonomy, pattern="\\(\\d*\\)", replacement="")) %>%
+		mutate(taxonomy=str_replace_all(string=taxonomy , pattern=";$", replacement="")) %>%
+		separate(taxonomy, into=c("domain", "phylum", "class", "order", "family", "genus"), sep=";") %>%
+  inner_join(jar_no_grbc, by = c("otu" = "Isolate_Number")) %>%
+  #Filter out genera that were not in the database, not helpful for our analysis
+  filter(!str_detect(genus, "unclassified")) %>%
+  filter(!str_detect(genus, "uncultured")) %>%
+  select("otu", "jar", everything()) %>%
+  #Replace DF with D31
+  lapply(function(x) {
+    gsub("DF", "D31", x)
+  }) %>%
+  as.tibble(.) %>%
+  mutate(host_species = ifelse(str_detect(jar, paste(jar_num$jar_no[1:9], collapse = "|")), "Chlorella",
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[10:18], collapse = "|")), "Coelastrum",
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[19:27], collapse = "|")), "Scenedesmus",
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[28:36], collapse = "|")), "Monoraphidium",
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[37:45], collapse = "|")), "Selenastrum", "NA"))))))
+
+#Combine silva and freshwater dataframes
+GRBC_all_tax <- merge(GRBC_Freshwater2016_tax, GRBC_Silva_132_tax, all = TRUE) %>%
+  #Add a column to distinguish D3 and D31
+  mutate(time = ifelse(str_detect(otu, "_D31"), "D31", "D3")) %>%
+  #Rearrage columns in a readable order
+  select(otu, jar, time, everything())
+
+Phycosphere_tax <- read_tsv(file="Phycosphere_stability.file.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.an.unique_list.0.03.cons.taxonomy.txt") %>%
+		rename_all(tolower) %>%  mutate(taxonomy=str_replace_all(string=taxonomy, pattern="\\(\\d*\\)", replacement="")) %>%
+		mutate(taxonomy=str_replace_all(string=taxonomy , pattern=";$", replacement="")) %>%
+		separate(taxonomy, into=c("domain", "phylum", "class", "order", "family", "genus"), sep=";") %>%
+  filter(!str_detect(genus, "unclassified")) %>%
+  filter(!str_detect(genus, "uncultured"))
+	
+Phycosphere_otu <- read_tsv("Phycosphere_stability.file.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.an.unique_list.shared.txt",col_types=cols(Group=col_character())) %>%
+	select(-label, -numOtus) %>%
+ 	pivot_longer(cols=-Group, names_to="otu", values_to="count") 
+
+#We need the number from this output to standardize counts below.
+Phycosphere_counts <- Phycosphere_otu %>%
+  #make the data table recognize samples
+  group_by(Group) %>%
+  summarize(n = sum(count)) %>%
+  ungroup() %>%
+  rename("total_count_group" = n)
+
+Phycosphere_otu_count <- inner_join(Phycosphere_otu, Phycosphere_counts, by = "Group") %>%
+  mutate(rel_abund = count/total_count_group) %>%
+  #Add Host Species Information
+    mutate(host_species = ifelse(str_detect(Group, paste(jar_num$jar_no[1:9], collapse = "|")), "Chlorella",
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[10:18], collapse = "|")), "Coelastrum",
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[19:27], collapse = "|")), "Scenedesmus",
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[28:36], collapse = "|")), "Monoraphidium",
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[37:45], collapse = "|")), "Selenastrum", "NA")))))) %>%
+  #Add triplicate info, (I know this is sloppy, but I lost my patience coding a for loop)
+  mutate(triplicate = ifelse(str_detect(Group, paste(jar_num$jar_no[1:3], collapse = "|")), 1,
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[4:6], collapse = "|")), 2,
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[7:9], collapse = "|")), 3,
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[10:12], collapse = "|")), 4,
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[13:15], collapse = "|")), 5,
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[16:18], collapse = "|")), 6,
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[19:21], collapse = "|")), 7,
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[22:24], collapse = "|")), 8,
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[25:27], collapse = "|")), 9,
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[28:30], collapse = "|")), 10,
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[31:33], collapse = "|")), 11,
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[34:36], collapse = "|")), 12,
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[37:39], collapse = "|")), 13,
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[40:42], collapse = "|")), 14,
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[43:45], collapse = "|")), 15, "NA"))))))))))))))))
+
+Phycosphere_otu_D3 <- Phycosphere_otu_count %>% 
+  filter(str_detect(Group,"-D3-") & str_detect(Group,"022um"))
+
+
+Phycosphere_otu_D31 <- Phycosphere_otu_count %>% 
+  filter(str_detect(Group,"-D31-") & str_detect(Group,"022um"))
+
+
+```
+
+```{r Phycosphere OTU D3/D31 Comparison by Host Species}
+#Separate D3 and D31 data
+agg_genus_data_D3 <- inner_join(Phycosphere_otu_D3, Phycosphere_tax) %>% #Groups by otu automatically
+  group_by(genus, Group, host_species, triplicate) %>% #Triplicate 1 is J1,2,3 and so on for each host species
+  summarize(agg_rel_abund=sum(rel_abund)) %>% #Add together OTUs of the same group that are identical to get an aggregate abundance for each genus
+  ungroup() %>%
+  group_by(genus, triplicate, host_species) %>% #Average triplicate counts for each genus
+  summarize(avg_rel_abund = mean(agg_rel_abund)) %>%
+  ungroup() %>%
+  mutate(time = "D3")
+
+agg_genus_data_D31 <- inner_join(Phycosphere_otu_D31, Phycosphere_tax) %>% #Groups by otu automatically
+  group_by(genus, Group, host_species, triplicate) %>% #Triplicate 1 is J1,2,3 and so on for each host species
+  summarize(agg_rel_abund=sum(rel_abund)) %>% #Add together OTUs of the same group that are identical to get an aggregate abundance for each genus
+  ungroup() %>%
+  group_by(genus, triplicate, host_species) %>% #Average triplicate counts for each genus
+  summarize(avg_rel_abund = mean(agg_rel_abund)) %>%
+  ungroup() %>%
+  mutate(time = "D31")
+
+
+#D3 Algal Host Genus Makeup
+colors <-   c(get_random_grid_colors(35, seed = 904057)) #Adjust the number to however many colors the graph says it needs upon error
+
+# top_genera_D3_mean <- agg_genus_data_D3 %>%
+# 		group_by(genus) %>%
+# 		summarize(mean=mean(agg_rel_abund)) %>%
+# 		arrange((desc(mean))) %>% # keep this so that the genera are sorted properly
+# 		top_n(20, mean) %>%
+# 		pull(genus) # use pull to convert the names from a data frame to a vector of names
+top_genera_D3 <- agg_genus_data_D3 %>%
+		group_by(genus) %>%
+		summarize(median=median(agg_rel_abund)) %>%
+		arrange((desc(median))) %>% # keep this so that the genera are sorted properly
+		top_n(20, median) %>%
+		pull(genus) # use pull to convert the names from a data frame to a vector of names
+
+
+top_genera_D31 <- agg_genus_data_D31 %>%
+		group_by(genus) %>%
+		summarize(median=median(agg_rel_abund)) %>%
+		arrange((desc(median))) %>% # keep this so that the genera are sorted properly
+		top_n(20, median) %>%
+		pull(genus) # use pull to convert the names from a data frame to a vector of names
+
+#D3 Algal Host Genus Makeup Stacked Barplot
+plot_D3 <- agg_genus_data_D3 %>% filter (genus %in% top_genera_D3 | genus %in% top_genera_D31) %>%
+  arrange(genus) %>%
+#mutate(triplicate = fct_reorder(triplicate, as.numeric(triplicate))) %>%
+ggplot(aes(x = host_species, y = agg_rel_abund, fill = genus)) + 
+  geom_bar(stat = "identity", position = "fill") +
+  scale_fill_manual(values = colors) +
+  theme(axis.title.x = element_blank(), 
+    axis.text.x = element_text(angle = 70, hjust = 1, size = 10),
+    axis.text.y = element_text(size = 9),
+    axis.title.y = element_text(size = 9))+
+  guides(fill = guide_legend(size =10)) +
+  labs( y = "Relative Abundance (Genus)", subtitle = "D3 Genus Abundance by Host Species", fill = "Genus")
+
+
+#D31 Algal Host Genus Makeup Stacked Barplot
+plot_D31 <- agg_genus_data_D31 %>% filter (genus %in% top_genera_D31 | genus %in% top_genera_D3) %>%
+  arrange(genus) %>%
+#mutate(triplicate = fct_reorder(triplicate, as.numeric(triplicate))) %>%
+ggplot(aes(x = host_species, y = agg_rel_abund, fill = genus)) + 
+  geom_bar(stat = "identity", position = "fill") +
+  scale_fill_manual(values = colors) +
+  theme(axis.title.x = element_blank(), 
+    axis.text.x = element_text(angle = 70, hjust = 1, size = 10),
+    axis.text.y = element_text(size = 9),
+    axis.title.y = element_text(size = 9))+
+  guides(fill = guide_legend(size = 10)) +
+  labs( y = "Relative Abundance (Genus)", subtitle = "D31 Genus Abundance by Host Species", fill = "Genus")
+
+#Combine D3 and D31 plots using ggpubr
+ggarrange(plot_D3, plot_D31 + rremove("ylab"),
+          common.legend = TRUE, legend = "bottom", nrow = 1, ncol = 2, labels = "AUTO")
+ggsave(filename = "D3-D31 Phycosphere Comparison2.png",  dpi = 300)
+
+#Recombine as one dataframe for contamination checks
+agg_genus_data <- merge(agg_genus_data_D3, agg_genus_data_D31, all=TRUE)
+# unique genuses
+length(unique(agg_genus_data$genus))
+
+top_genera <- agg_genus_data %>%
+		group_by(genus, time) %>%
+		summarize(median=median(avg_rel_abund)) %>%
+		arrange((desc(median))) %>% # keep this so that the genera are sorted properly
+		top_n(20) %>%
+		pull(genus) # use pull to convert the names from a data frame to a vector of names
+
+agg_genus_data %>% filter (genus %in% top_genera_D3 | genus %in% top_genera_D31) %>%
+  arrange(genus) %>%
+  #mutate(triplicate = fct_reorder(triplicate, as.numeric(triplicate))) %>%
+ggplot(aes(x = host_species, y = avg_rel_abund, fill = genus)) + 
+  geom_bar(stat = "identity", position = "fill") +
+  scale_fill_manual(values = colors) +
+  theme(axis.title.x = element_blank(), 
+    axis.text.x = element_text(angle = 70, hjust = 1, size = 12))  +
+  ylab("Relative Abundance (Genus) \n") +
+  ggtitle("GRBC D31/D3 Isolates by Triplicate")
+
+```
+
+```{r GRBC Comparison}
+#Filter genus hits from GRBC silva and freshwater database hits
+Phycosphere_GRBC_D3 <- inner_join(GRBC_all_tax, agg_genus_data_D3) %>%
+  filter(str_detect(Group, jar) & str_detect(otu, time) & !str_detect(otu, "D31")) 
+
+Phycosphere_GRBC_D31 <- inner_join(GRBC_all_tax, agg_genus_data_D31) %>%
+  filter(str_detect(Group, jar) & str_detect(otu, time) & str_detect(otu, "D31")) 
+
+#Isolates that are probably contaminants, not represented in phycosphere data
+Phycosphere_GRBC_cont <- anti_join(GRBC_all_tax, agg_genus_data) %>%
+  mutate(contaminated = TRUE)
+Phycosphere_GRBC_cont %>% group_by(genus) %>%
+  summarize(distinct_genus = n_distinct(genus))
+
+#Graph D3 and D31 genuses that are present in host phycospheres (not complete yet due to incomplete sequencing)
+Phycosphere_GRBC_D3 %>%
+  filter(avg_rel_abund != 0) %>%
+  group_by(host_species) %>%
+  mutate(avg_rel_abund = mean(avg_rel_abund)) %>%
+  ungroup() %>%
+mutate(host_species = factor(host_species, levels = c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum"))) %>%
+  ggplot( aes(x = genus, y = avg_rel_abund, fill = host_species)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_pubr() +
+  theme(axis.title.x = element_blank(), 
+    axis.text.x = element_text(angle = 70, hjust = 1, size = 12)) +
+  xlab("Genus") +
+  labs(fill = "Host Species") + 
+  theme(legend.position = "right")
+
+Phycosphere_GRBC_D31 %>%
+  filter(avg_rel_abund != 0) %>%
+  group_by(host_species) %>%
+  mutate(avg_rel_abund = mean(avg_rel_abund)) %>%
+  ungroup() %>%
+mutate(host_species = factor(host_species, levels = c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum"))) %>%
+  ggplot( aes(x = genus, y = avg_rel_abund, fill = host_species)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_pubr() +
+  theme(axis.title.x = element_blank(), 
+    axis.text.x = element_text(angle = 70, hjust = 1, size = 12)) +
+  xlab("Genus") +
+  labs(fill = "Host Species") + 
+  theme(legend.position = "right")
+
+
+
+df3 <- Phycosphere_GRBC_D3 %>% mutate(Type = "GRBC") %>%
+  bind_rows(agg_genus_data_D3 %>%
+              mutate(Type = "Phyco"))
+
+df3 %>% 
+  #Filter out reads below the detection limit that are not part of our isolate collection
+  filter(host_species == "Scenedesmus" & !(avg_rel_abund < 1/16050 & (is.na(otu)))) %>%
+  #Reorder genus by average relative abundance to get a smooth curve
+  mutate(genus = fct_reorder(genus, avg_rel_abund, .desc = TRUE)) %>%
+  ggplot( aes(x = genus, y = avg_rel_abund, fill = otu)) +
+  # geom_text(aes(label = otu), check_overlap = FALSE, nudge_x = 0.25) +
+  # ylim(0,0.5) +
+  # geom_rect(
+  #   aes(xmin = "Aquabacterium", xmax = "BacIII_A", fill = otu),
+  #   ymin = -Inf, ymax = Inf, alpha = 0.1
+  # ) +
+  geom_col() +
+  xlab("Genus") +
+  labs(fill = "Isolate") + 
+  theme(legend.position = "right") +
+  coord_flip()
+
+Phycosphere_GRBC_D3  %>%
+  mutate(otu = fct_reorder(host_species, avg_rel_abund, .fun = 'median', .desc = TRUE)) %>%
+  ggplot( aes(x = genus, y = avg_rel_abund, fill = otu)) +
+geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = colors) +
+  theme(axis.title.x = element_blank(), 
+    axis.text.x = element_text(angle = 70, hjust = 1, size = 10),
+    axis.text.y = element_text(size = 9),
+    axis.title.y = element_text(size = 9))+
+  guides(fill = guide_legend(size = 10)) +
+  labs( y = "Relative Abundance (Genus)", subtitle = "D3 Genus Abundance by Host Species", fill = "Genus")
+
+Phycosphere_GRBC_D31  %>%
+  mutate(otu = fct_reorder(otu, avg_rel_abund, .fun = 'median', .desc = TRUE)) %>%
+  ggplot( aes(x = genus, y = avg_rel_abund, fill = otu)) +
+  scale_fill_manual(values = colors) +
+  geom_col() +
+  xlab("Isolate") +
+  xlab("") +
+  coord_flip()
+
+column_plot_D3 <- Phycosphere_GRBC_D3  %>%
+  filter(avg_rel_abund != 0) %>%
+  group_by(host_species) %>%
+  mutate(avg_rel_abund = mean(avg_rel_abund)) %>%
+  ungroup() %>%
+mutate(host_species = factor(host_species, levels = c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum"))) %>%
+  mutate(genus = fct_reorder(genus, avg_rel_abund, .fun = 'mean', .desc = TRUE)) %>%
+  ggplot( aes(x = genus, y = avg_rel_abund, fill = host_species)) +
+  scale_fill_brewer(type = "qual") +
+  geom_col() +
+  xlab("Isolate") +
+  xlab("") + coord_flip()
+
+
+column_plot_D31 <- Phycosphere_GRBC_D31  %>%
+  mutate(genus = fct_reorder(genus, avg_rel_abund, .fun = 'mean', .desc = TRUE)) %>%
+  ggplot( aes(x = genus, y = avg_rel_abund, fill = host_species)) +
+  scale_fill_brewer(type = "qual") +
+  geom_col() +
+  xlab("Isolate") +
+  xlab("") + coord_flip()
+
+# ggarrange(plot_3, plot_4 + rremove("ylab"),
+#           common.legend = TRUE, legend = "bottom", nrow = 2, ncol = 1, labels = "AUTO", heights = c(1.5,1), align = "v")
+
+
+# Plot 4: Stacked Barplot Genus level Sample Type 
+
+Phycosphere_GRBC_D3 %>%
+  arrange(genus) %>%
+ggplot(aes(x = host_species, y = avg_rel_abund, fill = genus)) + 
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colors) +
+  theme(axis.title.x = element_blank(), 
+    axis.text.x = element_text(angle = 70, hjust = 1, size = 12)) +
+  guides(fill = guide_legend(reverse = TRUE, keywidth = 1, keyheight = 1, size =12)) +
+  ylab("Relative Abundance (Genus) \n") +
+  ggtitle("GRBC Isolates")
+
+Phycosphere_GRBC_D31 %>% filter(host_species != "Selenastrum") %>%
+  arrange(genus) %>%
+ggplot(aes(x = host_species, y = avg_rel_abund, fill = genus)) + 
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = colors) +
+  theme(axis.title.x = element_blank(), 
+    axis.text.x = element_text(angle = 70, hjust = 1, size = 12)) +
+  guides(fill = guide_legend(reverse = TRUE, keywidth = 1, keyheight = 1, size =12)) +
+  ylab("Relative Abundance (Genus) \n") +
+  ggtitle("GRBC Isolates")
+
+  
+```
+
+
+```{r Phycosphere analysis top genera}
+agg_genus_data_D3 %>%
+		group_by(Group, genus) %>%
+		summarize(median=median(avg_rel_abund)) %>%
+		arrange((desc(median))) 
+
+top_genera_D3 <- agg_genus_data_D3 %>%
+		group_by(genus) %>%
+		summarize(median=median(avg_rel_abund)) %>%
+		arrange((desc(median))) %>% # keep this so that the genera are sorted properly
+		top_frac(0.02, median) %>%
+		pull(genus) # use pull to convert the names from a data frame to a vector of names
+
+top_genera_D31 <- agg_genus_data_D3 %>%
+		group_by(genus) %>%
+		summarize(median=median(avg_rel_abund)) %>%
+		arrange((desc(median))) %>% # keep this so that the genera are sorted properly
+		top_frac(0.02, median) %>%
+		pull(genus) # use pull to convert the names from a data frame to a vector of names
+
+agg_genus_data_D3 %>%
+	filter(genus %in% top_genera_D3) %>%
+  mutate(genus=factor(genus, levels=top_genera_D31)) %>%
+	mutate(avg_rel_abund = avg_rel_abund + 1/21000) %>%
+	ggplot(aes(x=genus, y=avg_rel_abund, color = host_species)) +
+		geom_hline(yintercept=1/16050, color="gray") +
+		geom_boxplot() + 
+  scale_color_manual(name=NULL,
+			values=c("purple", "blue", "red", "green", "orange"),
+			breaks=c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum"),
+			labels=c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum")) +
+		labs(title="Top 2% of Genera of D3 022um Host Algae",
+			x=NULL,
+			y="Relative abundance") +
+		scale_y_log10(breaks=c(1e-4, 1e-3, 1e-2, 1e-1, 1), labels=c(1e-2, 1e-1, 1, 10, 100)) +
+		theme_classic() +
+  coord_flip()
+
+agg_genus_data_D31 %>%
+	filter(genus %in% top_genera_D31) %>%
+  mutate(genus=factor(genus, levels=top_genera_D31)) %>%
+	mutate(avg_rel_abund = avg_rel_abund + 1/21000) %>%
+	ggplot(aes(x=genus, y=avg_rel_abund, color = host_species)) +
+		geom_hline(yintercept= 1/5570, color="gray") +
+		geom_boxplot() +
+  scale_color_manual(name=NULL,
+			values=c("purple", "blue", "red", "green", "orange"),
+			breaks=c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum"),
+			labels=c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum")) +
+		labs(title="Top 2% of Genera of D31 022um Host Algae",
+			x=NULL,
+			y="Relative abundance") +
+  scale_y_log10(breaks=c(1e-4, 1e-3, 1e-2, 1e-1, 1), labels=c(1e-2, 1e-1, 1, 10, 100)) +
+		theme_classic() +
+  coord_flip()
+```
+```{r stats}
+genera_tests_D31 <- agg_genus_data_D31 %>%
+					nest(sample_data = c(-genus)) %>%
+					mutate(test=map(sample_data, ~tidy(kruskal.test(avg_rel_abund~host_species, data=.)))) %>%
+					unnest(test) %>%
+					mutate(p.value.adj=p.adjust(p.value, method="BH")) %>%
+					arrange(p.value.adj)
+
+sig_genera_D31 <- genera_tests_D31 %>%
+					filter(p.value.adj <= 0.05) %>%
+					pull(genus)
+
+genera_tests_D3 <- agg_genus_data_D3 %>%
+					nest(sample_data = c(-genus)) %>%
+					mutate(test=map(sample_data, ~tidy(kruskal.test(avg_rel_abund~host_species, data=.)))) %>%
+					unnest(test) %>%
+					mutate(p.value.adj=p.adjust(p.value, method="BH")) %>%
+					arrange(p.value.adj)
+
+sig_genera_D3 <- genera_tests_D3 %>%
+					filter(p.value.adj <= 0.05) %>%
+					pull(genus)
+
+#Plot significant data only
+
+agg_genus_data_D3 %>%
+	filter(genus %in% sig_genera_D3) %>%
+	mutate(genus=factor(genus, levels=sig_genera_D3)) %>%
+	mutate(avg_rel_abund=avg_rel_abund+1/21000) %>%
+	ggplot(aes(x=genus, y=avg_rel_abund, color=host_species)) +
+		geom_hline(yintercept=1/16050, color="gray") +
+		geom_boxplot() +
+		scale_color_manual(name=NULL,
+			values=c("purple", "blue", "red", "green", "orange"),
+			breaks=c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum"),
+			labels=c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum")) +
+		labs(title="x genera are significantly associated with host species",
+			x=NULL,
+			y="Relative abundance") +
+		scale_y_log10(breaks=c(1e-4, 1e-3, 1e-2, 1e-1, 1), labels=c(1e-2, 1e-1, 1, 10, 100)) +
+		theme_classic() +
+  coord_flip()
+
+```
+
+```{r Subset}
+#Remove numbers in parentheses from the table to aid in classification.
+
+# Phycosphere_tax <- as.data.frame(lapply(Phycosphere_tax , gsub, pattern = "\\s*\\([^\\)]+\\)", replacement = ""))
+# 
+# GRBC_Freshwater2016_final <- as.data.frame(lapply(GRBC_Freshwater2016_pruned, gsub, pattern = "\\s*\\([^\\)]+\\)", replacement = ""))
+# 
+# GRBC_Silva_132_final <- as.data.frame(lapply(GRBC_Silva_132_pruned, gsub, pattern = "\\s*\\([^\\)]+\\)", replacement = ""))
+
+```
+
