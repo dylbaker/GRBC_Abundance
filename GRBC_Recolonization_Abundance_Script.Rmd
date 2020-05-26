@@ -294,7 +294,7 @@ ggplot(aes(x = host_species, y = avg_rel_abund, fill = genus)) +
     axis.title.y = element_text(size = 9),
     plot.title = element_text(size = 14))+
   guides(fill = guide_legend(size =10)) +
-  labs( x = "Host Species", y = "Relative Abundance (Genus)", title = "Top 20 Day 3 Genera Abundance by Host Species", fill = "Genus")
+  labs( x = "Host Species", y = "Average Relative Abundance (Genus)", title = "Top 20 Day 3 Genera Abundance by Host Species", fill = "Genus")
 
 
 #D31 Algal Host Genus Makeup Stacked Barplot
@@ -302,7 +302,7 @@ plot_D31 <- agg_genus_data_D31 %>% filter (genus %in% top_genera_D31 | genus %in
   #filter(triplicate == 1 | triplicate == 4 | triplicate == 7 | triplicate == 10 | triplicate == 13) %>% #Triplicates from Pond one
   group_by(genus, host_species) %>%
   summarize(avg_rel_abund = mean(agg_rel_abund)) %>% #Take average of all the groups for one host species
-  ungroup() %>% 
+  ungroup() %>%
 arrange(genus, desc(avg_rel_abund)) %>%
   mutate(host_species = factor(host_species, levels = c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum"))) %>%
 #mutate(triplicate = fct_reorder(triplicate, as.numeric(triplicate))) %>%
@@ -315,12 +315,12 @@ ggplot(aes(x = host_species, y = avg_rel_abund, fill = genus)) +
     axis.title.y = element_text(size = 9),
     plot.title = element_text(size = 14))+
   guides(fill = guide_legend(size =10)) +
-  labs( x = "Host Species", y = "Relative Abundance (Genus)", title = "Top 20 Day 31 Genera Abundance by Host Species", fill = "Genus")
+  labs( x = "Host Species", y = "Average Relative Abundance (Genus)", title = "Top 20 Day 31 Genera Abundance by Host Species", fill = "Genus")
 
 #Combine D3 and D31 plots using ggpubr
-ggarrange(plot_D3, plot_D31 + rremove("ylab"),
+ggarrange(plot_D3 + font("xlab", size = 10), plot_D31 + rremove("ylab") + font("xlab", size = 10),
           common.legend = TRUE, legend = "bottom", nrow = 1, ncol = 2, labels = "AUTO")
-ggsave(filename = "D3-D31 Phycosphere Comparison2.png",  dpi = 300)
+ggsave(filename = "D3-D31 Phycosphere Comparison2.png",  dpi = 300, path = "./figures", width = 10, height = 8)
 
 #Recombine as one dataframe for contamination checks
 agg_genus_data <- merge(agg_genus_data_D3, agg_genus_data_D31, all=TRUE)
@@ -369,16 +369,14 @@ df3 <- Phycosphere_GRBC_D3 %>% mutate(Type = "GRBC") %>%
 
 df3 %>% 
   #Filter out reads below the detection limit that are not part of our isolate collection
-  filter(host_species == "Scenedesmus" & !(avg_rel_abund < 1/16050 & (is.na(otu)))) %>%
+  filter(!(agg_rel_abund < 1/16050 & (is.na(otu)))) %>%
+  group_by(genus, host_species) %>%
+  summarize(avg_rel_abund = mean(agg_rel_abund)) %>% #Take average of all the groups for one host species
+  ungroup() %>% 
+arrange(genus, desc(avg_rel_abund)) %>%
   #Reorder genus by average relative abundance to get a smooth curve
-  mutate(genus = fct_reorder(genus, avg_rel_abund, .desc = TRUE)) %>%
-  ggplot( aes(x = genus, y = avg_rel_abund, fill = otu)) +
-  # geom_text(aes(label = otu), check_overlap = FALSE, nudge_x = 0.25) +
-  # ylim(0,0.5) +
-  # geom_rect(
-  #   aes(xmin = "Aquabacterium", xmax = "BacIII_A", fill = otu),
-  #   ymin = -Inf, ymax = Inf, alpha = 0.1
-  # ) +
+  mutate(genus = fct_reorder(genus, avg_rel_abund, .fun = "sum", .desc = TRUE)) %>%
+  ggplot( aes(x = genus, y = avg_rel_abund, fill = host_species)) +
   geom_col() +
   xlab("Genus") +
   labs(fill = "Isolate") + 
@@ -437,10 +435,10 @@ mutate(host_species = factor(host_species, levels = c("Chlorella", "Coelastrum",
   theme(axis.title.x = element_blank(), 
     axis.text.x = element_text(angle = 70, hjust = 1, size = 10),
     axis.text.y = element_text(size = 10),
-    axis.title.y = element_text(size = 10),
+    axis.title.y = element_text(size = 9),
     plot.title = element_text(size = 14))+
   guides(fill = guide_legend(size =10)) +
-  labs( x = "Genus", y = "Relative Abundance (Genus)", title = "GRBC Isolates Present in Algal Phycospheres by Abundance", fill = "Host Species")
+  labs( x = "Genus", y = "Average Relative Abundance (Genus)", title = "Day 3 GRBC Isolates Present in Algal Phycospheres by Abundance", fill = "Host Species")
 
 column_plot_D31 <- Phycosphere_GRBC_D31  %>%
   filter(agg_rel_abund != 0) %>%
@@ -455,28 +453,39 @@ mutate(host_species = factor(host_species, levels = c("Chlorella", "Coelastrum",
   theme(axis.title.x = element_blank(), 
     axis.text.x = element_text(angle = 70, hjust = 1, size = 10),
     axis.text.y = element_text(size = 10),
-    axis.title.y = element_text(size = 10),
+    axis.title.y = element_text(size = 9),
     plot.title = element_text(size = 14))+
   guides(fill = guide_legend(size =10)) +
-  labs( x = "Genus", y = "Relative Abundance (Genus)", title = "GRBC Isolates Present in Algal Phycospheres by Abundance", fill = "Host Species")
-ggarrange(column_plot_D3, column_plot_D31,
+  labs( x = "Genus", y = "Average Relative Abundance (Genus)", title = "Day 31 GRBC Isolates Present in Algal Phycospheres by Abundance", fill = "Host Species")
+ggarrange(column_plot_D3, column_plot_D31 + font("xlab", size = 10),
           common.legend = TRUE, legend = "right", nrow = 2, ncol = 1, labels = "AUTO", align = "v")
+ggsave(filename = "GRBC Abundance in Phycosphere.png",  dpi = 300, path = "./figures", height = 8, width = 8)
 
 ```
 
 ```{r Stacked barplot GRBC}
 # Plot 4: Stacked Barplot Genus level Sample Type (looks messy, don't use in paper)
 
-Phycosphere_GRBC_D3 %>%
-  arrange(genus) %>%
-ggplot(aes(x = host_species, y = agg_rel_abund, fill = genus)) + 
-  geom_bar(stat = "identity", position = "stack") +
+Plot_GRBC_D3 <- Phycosphere_GRBC_D3 %>%
+  group_by(genus, host_species) %>%
+  summarize(avg_rel_abund = mean(agg_rel_abund)) %>% #Take average of all the groups for one host species
+  ungroup() %>% 
+arrange(genus, desc(avg_rel_abund)) %>%
+  mutate(host_species = factor(host_species, levels = c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum"))) %>%
+#mutate(triplicate = fct_reorder(triplicate, as.numeric(triplicate))) %>%
+ggplot(aes(x = host_species, y = avg_rel_abund, fill = genus)) + 
+  geom_bar(stat = "identity", position = "fill") +
   scale_fill_manual(values = colors) +
   theme(axis.title.x = element_blank(), 
-    axis.text.x = element_text(angle = 70, hjust = 1, size = 12)) +
-  guides(fill = guide_legend(reverse = TRUE, keywidth = 1, keyheight = 1, size =12)) +
-  ylab("Relative Abundance (Genus) \n") +
-  ggtitle("GRBC Isolates")
+    axis.text.x = element_text(angle = 70, hjust = 1, size = 10),
+    axis.text.y = element_text(size = 9),
+    axis.title.y = element_text(size = 9),
+    plot.title = element_text(size = 14))+
+  guides(fill = guide_legend(size =10)) +
+  labs( x = "Host Species", y = "Average Relative Abundance (Genus)", title = "Day 3 GRBC Isolates Present in Host Algal Phycospheres", fill = "Genus")
+
+ggarrange(plot_D3 + font("xlab", size = 10),Plot_GRBC_D3 + font("xlab", size = 10),  plot_D31 + rremove("ylab") + font("xlab", size = 10),
+          common.legend = TRUE, legend = "bottom", nrow = 1, ncol = 3, labels = "AUTO")
 
 Phycosphere_GRBC_D31 %>% filter(host_species != "Selenastrum") %>%
   arrange(genus) %>%
