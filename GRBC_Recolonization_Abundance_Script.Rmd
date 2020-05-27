@@ -54,6 +54,8 @@ library(gtools)
 library(gridExtra)
 library(ggpubr)
 library(igraph)
+library(tidytext)
+library(RColorBrewer)
 #set seed so all random number generation is the same
 set.seed(05042019)
 
@@ -176,7 +178,8 @@ Phycosphere_tax <- read_tsv(file="Phycosphere_stability.file.trim.contigs.good.u
 		mutate(taxonomy=str_replace_all(string=taxonomy , pattern=";$", replacement="")) %>%
 		separate(taxonomy, into=c("domain", "phylum", "class", "order", "family", "genus"), sep=";") %>%
   filter(!str_detect(genus, "unclassified")) %>%
-  filter(!str_detect(genus, "uncultured"))
+  filter(!str_detect(genus, "uncultured")) %>%
+  filter(!str_detect(genus, "Unknown"))
 	
 Phycosphere_otu <- read_tsv("Phycosphere_stability.file.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.an.unique_list.shared.txt",col_types=cols(Group=col_character())) %>%
 	select(-label, -numOtus) %>%
@@ -361,28 +364,75 @@ Phycosphere_GRBC_cont <- anti_join(GRBC_all_tax, agg_genus_data) %>%
 Phycosphere_GRBC_cont %>% group_by(genus) %>%
   summarize(distinct_genus = n_distinct(genus))
 
-#Relative abundance curves
 
-df3 <- Phycosphere_GRBC_D3 %>% mutate(Type = "GRBC") %>%
-  bind_rows(agg_genus_data_D3 %>%
-              mutate(Type = "Phyco"))
 
-df3 %>% 
+#Get hexadecimal codes for Accent brewer palette
+display.brewer.pal(n = 5, 'Accent')
+brewer.pal(n = 5, 'Accent') # "#7FC97F" "#BEAED4" "#FDC086" "#FFFF99" "#386CB0"
+agg_genus_data_D3 %>% 
   #Filter out reads below the detection limit that are not part of our isolate collection
-  filter(!(agg_rel_abund < 1/16050 & (is.na(otu)))) %>%
+  filter(!(agg_rel_abund < 1/500) | genus %in% Phycosphere_GRBC_D3$genus) %>%
   group_by(genus, host_species) %>%
   summarize(avg_rel_abund = mean(agg_rel_abund)) %>% #Take average of all the groups for one host species
   ungroup() %>% 
-arrange(genus, desc(avg_rel_abund)) %>%
+  mutate(host_species = factor(host_species, levels = c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum")), genus = reorder_within(genus, -avg_rel_abund, host_species)) 
+#Detecting which Phycosphere_otus match up to isolates
+if_host_match <- ifelse(agg_genus_data_D3$genus %in% Phycosphere_GRBC_D3$genus & str_detect(Phycosphere_GRBC_D3$host_species,"Chlorella") , "red", 
+                        ifelse(agg_genus_data_D3$genus %in% Phycosphere_GRBC_D3$genus & str_detect(Phycosphere_GRBC_D3$host_species,"Coelastrum"), "#BEAED4",
+                        ifelse(agg_genus_data_D3$genus == Phycosphere_GRBC_D3$genus & str_detect(Phycosphere_GRBC_D3$host_species,"Scenedesmus"), "#FDC086",
+                        ifelse(agg_genus_data_D3$genus == Phycosphere_GRBC_D3$genus & str_detect(Phycosphere_GRBC_D3$host_species,"Monoraphidium"), "#FFFF99",
+                        ifelse(agg_genus_data_D3$genus == Phycosphere_GRBC_D3$genus & str_detect(Phycosphere_GRBC_D3$host_species,"Selenastrum"), "#386CB0", "black"))))) #Matches the color of each species in the graph below
+#Relative abundance curves
+agg_genus_data_D3 %>% 
+  #Filter out reads below the detection limit that are not part of our isolate collection
+  filter(!(agg_rel_abund < 1/500) | genus %in% Phycosphere_GRBC_D3$genus) %>%
+  group_by(genus, host_species) %>%
+  summarize(avg_rel_abund = mean(agg_rel_abund)) %>% #Take average of all the groups for one host species
+  ungroup() %>% 
+  mutate(host_species = factor(host_species, levels = c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum")), genus = reorder_within(genus, -avg_rel_abund, host_species)) %>%
+  mutate(color = ifelse(str_detect(genus, paste0(Phycosphere_GRBC_D3$genus)) & str_detect(Phycosphere_GRBC_D3$host_species,"Chlorella") , "#7FC97F", 
+                        ifelse(str_detect(genus, paste0(Phycosphere_GRBC_D3$genus)) & str_detect(Phycosphere_GRBC_D3$host_species,"Coelastrum"), "#BEAED4",
+                        ifelse(str_detect(genus, paste0(Phycosphere_GRBC_D3$genus)) & str_detect(Phycosphere_GRBC_D3$host_species,"Scenedesmus"), "#FDC086",
+                        ifelse(str_detect(genus, paste0(Phycosphere_GRBC_D3$genus)) & str_detect(Phycosphere_GRBC_D3$host_species,"Monoraphidium"), "#FFFF99",
+                        ifelse(str_detect(genus, paste0(Phycosphere_GRBC_D3$genus)) & str_detect(Phycosphere_GRBC_D3$host_species,"Selenastrum"), "#386CB0", "black")))))) %>%
   #Reorder genus by average relative abundance to get a smooth curve
-  mutate(genus = fct_reorder(genus, avg_rel_abund, .fun = "sum", .desc = TRUE)) %>%
   ggplot( aes(x = genus, y = avg_rel_abund, fill = host_species)) +
-  geom_col() +
-  xlab("Genus") +
-  labs(fill = "Isolate") + 
-  theme(legend.position = "right") +
+  geom_bar(stat = "Identity") +
+  facet_wrap(~host_species, scales = "free_y", dir = "v") +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  theme(axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 70, hjust = 1, size = 9),
+    axis.title.y = element_text(size = 9),
+    axis.text.y = element_text(size = 7, color = color)) +
+  guides(fill = guide_legend(size = 10)) +
+  labs( y = "Relative Abundance (Genus)", title = "Day 3 Genera Present in Host Phycospheres", fill = "Host Species") +
+  scale_y_continuous("Average Relative Abundance") +
+  scale_x_reordered() +
   coord_flip()
 
+
+agg_genus_data_D31 %>% 
+  #Filter out reads below the detection limit that are not part of our isolate collection
+  filter(!(agg_rel_abund < 1e-3) | genus %in% Phycosphere_GRBC_D31$genus) %>%
+  group_by(genus, host_species) %>%
+  summarize(avg_rel_abund = mean(agg_rel_abund)) %>% #Take average of all the groups for one host species
+  ungroup() %>% 
+  mutate(host_species = factor(host_species, levels = c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum")), genus = reorder_within(genus, -avg_rel_abund, host_species)) %>%
+  #Reorder genus by average relative abundance to get a smooth curve
+  ggplot( aes(x = genus, y = avg_rel_abund, fill = host_species)) +
+  geom_col() +
+  facet_wrap(~host_species, scales = "free_y", dir = "v") +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  theme(axis.title.x = element_blank(), 
+    axis.text.x = element_text(angle = 70, hjust = 1, size = 9),
+    axis.text.y = element_text(size = 9),
+    axis.title.y = element_text(size = 9))+
+  guides(fill = guide_legend(size = 10)) +
+  labs( y = "Relative Abundance (Genus)", title = "Day 31 Genera Present in Host Phycospheres", fill = "Host Species") +
+  scale_y_continuous("Average Relative Abundance") +
+  coord_flip()+
+  scale_x_reordered() +
+  scale_y_continuous()
 ```
 ```{r dodge barplot}
 #Dodge barplot for GRBC isolates with abundance (incomplete because of inadequate sequencing)
@@ -395,7 +445,7 @@ mutate(host_species = factor(host_species, levels = c("Chlorella", "Coelastrum",
   mutate(genus = fct_reorder(genus, avg_rel_abund, .fun = 'sum', .desc = TRUE)) %>%
   ggplot( aes(x = genus, y = avg_rel_abund, fill = host_species)) +
 geom_bar(stat = "identity", position = "dodge") +
-  scale_fill_manual(values = colors) +
+  scale_fill_brewer(type = "qual") +
   theme(axis.title.x = element_blank(), 
     axis.text.x = element_text(angle = 70, hjust = 1, size = 10),
     axis.text.y = element_text(size = 9),
@@ -412,7 +462,7 @@ mutate(host_species = factor(host_species, levels = c("Chlorella", "Coelastrum",
   mutate(genus = fct_reorder(genus, avg_rel_abund, .fun = 'sum', .desc = TRUE)) %>%
   ggplot( aes(x = genus, y = avg_rel_abund, fill = host_species)) +
 geom_bar(stat = "identity", position = "dodge") +
-  scale_fill_manual(values = colors) +
+  scale_fill_brewer(type = "qual") +
   theme(axis.title.x = element_blank(), 
     axis.text.x = element_text(angle = 70, hjust = 1, size = 10),
     axis.text.y = element_text(size = 9),
@@ -504,27 +554,14 @@ ggplot(aes(x = host_species, y = agg_rel_abund, fill = genus)) +
 
 ```{r Phycosphere analysis top genera}
 agg_genus_data_D3 %>%
-		group_by(Group, genus) %>%
-		summarize(median=median(avg_rel_abund)) %>%
-		arrange((desc(median))) 
-
-top_genera_D3 <- agg_genus_data_D3 %>%
-		group_by(genus) %>%
-		summarize(median=median(avg_rel_abund)) %>%
-		arrange((desc(median))) %>% # keep this so that the genera are sorted properly
-		top_frac(0.02, median) %>%
-		pull(genus) # use pull to convert the names from a data frame to a vector of names
-
-top_genera_D31 <- agg_genus_data_D3 %>%
-		group_by(genus) %>%
-		summarize(median=median(avg_rel_abund)) %>%
-		arrange((desc(median))) %>% # keep this so that the genera are sorted properly
-		top_frac(0.02, median) %>%
-		pull(genus) # use pull to convert the names from a data frame to a vector of names
+		group_by(triplicate, genus, host_species) %>%
+		summarize(avg_rel_abund = mean(agg_rel_abund)) %>%
+		arrange(desc(avg_rel_abund)) %>%
+  ungroup()
 
 agg_genus_data_D3 %>%
 	filter(genus %in% top_genera_D3) %>%
-  mutate(genus=factor(genus, levels=top_genera_D31)) %>%
+  mutate(genus=factor(genus, levels=top_genera_D3)) %>%
 	mutate(avg_rel_abund = avg_rel_abund + 1/21000) %>%
 	ggplot(aes(x=genus, y=avg_rel_abund, color = host_species)) +
 		geom_hline(yintercept=1/16050, color="gray") +
@@ -561,7 +598,7 @@ agg_genus_data_D31 %>%
 ```{r stats}
 genera_tests_D31 <- agg_genus_data_D31 %>%
 					nest(sample_data = c(-genus)) %>%
-					mutate(test=map(sample_data, ~tidy(kruskal.test(avg_rel_abund~host_species, data=.)))) %>%
+					mutate(test=map(sample_data, ~tidy(kruskal.test(agg_rel_abund~host_species, data=.)))) %>%
 					unnest(test) %>%
 					mutate(p.value.adj=p.adjust(p.value, method="BH")) %>%
 					arrange(p.value.adj)
@@ -572,7 +609,7 @@ sig_genera_D31 <- genera_tests_D31 %>%
 
 genera_tests_D3 <- agg_genus_data_D3 %>%
 					nest(sample_data = c(-genus)) %>%
-					mutate(test=map(sample_data, ~tidy(kruskal.test(avg_rel_abund~host_species, data=.)))) %>%
+					mutate(test=map(sample_data, ~tidy(kruskal.test(agg_rel_abund~host_species, data=.)))) %>%
 					unnest(test) %>%
 					mutate(p.value.adj=p.adjust(p.value, method="BH")) %>%
 					arrange(p.value.adj)
@@ -586,7 +623,7 @@ sig_genera_D3 <- genera_tests_D3 %>%
 agg_genus_data_D3 %>%
 	filter(genus %in% sig_genera_D3) %>%
 	mutate(genus=factor(genus, levels=sig_genera_D3)) %>%
-	mutate(avg_rel_abund=avg_rel_abund+1/21000) %>%
+	mutate(avg_rel_abund=agg_rel_abund+1/21000) %>%
 	ggplot(aes(x=genus, y=avg_rel_abund, color=host_species)) +
 		geom_hline(yintercept=1/16050, color="gray") +
 		geom_boxplot() +
