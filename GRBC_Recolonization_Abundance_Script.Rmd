@@ -403,7 +403,7 @@ agg_genus_data_D3 %>%
   theme(axis.title.x = element_blank(),
     axis.text.x = element_text(angle = 70, hjust = 1, size = 9),
     axis.title.y = element_text(size = 9),
-    axis.text.y = element_text(size = 7, color = color)) +
+    axis.text.y = element_text(size = 7, color = agg_genus_data_D3$color)) +
   guides(fill = guide_legend(size = 10)) +
   labs( y = "Relative Abundance (Genus)", title = "Day 3 Genera Present in Host Phycospheres", fill = "Host Species") +
   scale_y_continuous("Average Relative Abundance") +
