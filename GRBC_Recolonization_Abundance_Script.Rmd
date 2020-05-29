@@ -102,6 +102,10 @@ get_random_grid_colors <- function(ncolor,seed = sample_seq(1, 1000000, 1)) {
   RGB[index]
 } 
 
+#Get hexadecimal codes for Accent brewer palette
+display.brewer.pal(n = 5, 'Accent')
+brewer.pal(n = 5, 'Accent') # "#7FC97F" "#BEAED4" "#FDC086" "#FFFF99" "#386CB0"
+
 ```
 
 ``` {r Import}
@@ -391,32 +395,14 @@ agg_genus_data_D3_color <- agg_genus_data_D3 %>%
 agg_genus_data_D3_color$color[is.na(agg_genus_data_D3_color$color)]  <- "black"
 
 
-agg_genus_data_D3_color <- agg_genus_data_D3 %>% 
-  #Filter out reads below the detection limit that are not part of our isolate collection
-  filter(!(agg_rel_abund < 1/500) | genus %in% Phycosphere_GRBC_D3$genus) %>%
-  group_by(genus, host_species) %>%
-  summarize(avg_rel_abund = mean(agg_rel_abund)) %>% #Take average of all the groups for one host species
-  ungroup() %>% 
-  mutate(host_species = factor(host_species, levels = c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum")), genus = reorder_within(genus, -avg_rel_abund, host_species), color = "black")
 
-
-
-#Get hexadecimal codes for Accent brewer palette
-display.brewer.pal(n = 5, 'Accent')
-brewer.pal(n = 5, 'Accent') # "#7FC97F" "#BEAED4" "#FDC086" "#FFFF99" "#386CB0"
 
 #Matches the color of each species in the graph below
 #Relative abundance curves
-agg_genus_data_D3_color <- agg_genus_data_D3 %>% 
-  #Filter out reads below the detection limit that are not part of our isolate collection
-  filter(!(agg_rel_abund < 1/500) | genus %in% Phycosphere_GRBC_D3$genus) %>%
-  group_by(genus, host_species) %>%
-  summarize(avg_rel_abund = mean(agg_rel_abund)) %>% #Take average of all the groups for one host species
-  ungroup() %>% 
-  mutate(host_species = factor(host_species, levels = c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum")), genus = reorder_within(genus, -avg_rel_abund, host_species), color = "black")
-
+agg_genus_data_D3_color %>%
+  filter(str_detect(genus, "Vogesella")) %>%
   #Reorder genus by average relative abundance to get a smooth curve
-  ggplot(agg_genus_data_D3_color ,aes(x = genus, y = avg_rel_abund, fill = host_species)) +
+  ggplot( aes(x = genus, y = avg_rel_abund, fill = host_species)) +
   geom_bar(stat = "Identity") +
   facet_grid(cols = vars(host_species), scales = "free") +
   #facet_wrap(~host_species, scales = "free_y", dir = "v") +
@@ -428,7 +414,7 @@ agg_genus_data_D3_color <- agg_genus_data_D3 %>%
   guides(fill = guide_legend(size = 10)) +
   labs( y = "Relative Abundance (Genus)", title = "Day 3 Genera Present in Host Phycospheres", fill = "Host Species") +
   scale_y_continuous("Average Relative Abundance") +
-  scale_x_reordered()
+   scale_x_reordered()
 
 
 agg_genus_data_D31 %>% 
