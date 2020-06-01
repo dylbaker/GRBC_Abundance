@@ -146,12 +146,7 @@ jar_num <- as_tibble(paste0("J", 1:45, "-")) %>%
                         ifelse(str_detect(jar_no, paste0("J", 10:18, "-")), "Coelastrum",
                         ifelse(str_detect(jar_no, paste0("J", 19:27, "-")), "Scenedesmus",
                         ifelse(str_detect(jar_no, paste0("J", 28:36, "-")), "Monoraphidium",
-                        ifelse(str_detect(jar_no, paste0("J", 37:45, "-")), "Selenastrum", "")))))) %>%
-  mutate(triplicate = for (i in 1:15) {
-    for (j in -2:0) {
-      return(i)
-    }
-  })
+                        ifelse(str_detect(jar_no, paste0("J", 37:45, "-")), "Selenastrum", ""))))))
 jar_no_grbc <- read_csv(file = "Jar_Number_Correction.csv", na = "empty") %>%
   mutate(jar = paste0(jar_no, "-")) %>%
   select(Isolate_Number, jar)
@@ -208,8 +203,23 @@ GRBC_all_tax <- merge(GRBC_Freshwater2016_tax, GRBC_Silva_132_tax, all = TRUE) %
           ifelse(host_species == "Scenedesmus", "#E0115F",
           ifelse(host_species == "Monoraphidium", "#FFD400",
           ifelse(host_species == "Selenastrum", "#386CB0", "black")))))) %>%
+  mutate(triplicate = ifelse(str_detect(jar, paste(jar_num$jar_no[1:3], collapse = "|")), 1,
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[4:6], collapse = "|")), 2,
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[7:9], collapse = "|")), 3,
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[10:12], collapse = "|")), 4,
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[13:15], collapse = "|")), 5,
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[16:18], collapse = "|")), 6,
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[19:21], collapse = "|")), 7,
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[22:24], collapse = "|")), 8,
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[25:27], collapse = "|")), 9,
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[28:30], collapse = "|")), 10,
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[31:33], collapse = "|")), 11,
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[34:36], collapse = "|")), 12,
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[37:39], collapse = "|")), 13,
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[40:42], collapse = "|")), 14,
+                        ifelse(str_detect(jar, paste(jar_num$jar_no[43:45], collapse = "|")), 15, "NA")))))))))))))))) %>%
   #Rearrage columns in a readable order
-  select(otu, jar, time, color, everything())
+  select(otu, jar,triplicate, time, color, everything())
 
 Phycosphere_tax <- read_tsv(file="Phycosphere_stability.file.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.an.unique_list.0.03.cons.taxonomy.txt") %>%
 		rename_all(tolower) %>%  mutate(taxonomy=str_replace_all(string=taxonomy, pattern="\\(\\d*\\)", replacement="")) %>%
@@ -391,17 +401,19 @@ ggplot(aes(x = host_species, y = agg_rel_abund, fill = genus)) +
 ```{r GRBC Comparison}
 #Filter genus hits from GRBC silva and freshwater database hits
 Phycosphere_GRBC_D3 <- inner_join(GRBC_all_tax, agg_genus_data_D3) %>%
-  filter(str_detect(Group, jar) & str_detect(otu, time) & !str_detect(otu, "D31")) %>%
+  filter(!str_detect(otu, "D31")) %>%
   group_by(genus, host_species, time, color) %>%
   summarize(avg_rel_abund = mean(agg_rel_abund)) %>% #Take average of all the groups for one host species
-  ungroup()
+  ungroup() %>%
+  select(genus, host_species, color)
  
 
 Phycosphere_GRBC_D31 <- inner_join(GRBC_all_tax, agg_genus_data_D31) %>%
-  filter(str_detect(Group, jar) & str_detect(otu, time) & str_detect(otu, "D31"))  %>%
+  filter(str_detect(otu, "D31"))  %>%
   group_by(genus, host_species, time, color) %>%
   summarize(avg_rel_abund = mean(agg_rel_abund)) %>% #Take average of all the groups for one host species
-  ungroup()
+  ungroup() %>%
+  select(genus, host_species, color)
 
 #Isolates that are probably contaminants, not represented in phycosphere data
 Phycosphere_GRBC_cont <- anti_join(GRBC_all_tax, agg_genus_data) %>%
@@ -414,42 +426,43 @@ agg_genus_data_D3_color <- agg_genus_data_D3 %>%
   filter(!(agg_rel_abund < 1/500) | genus %in% Phycosphere_GRBC_D3$genus) %>%
   group_by(genus, host_species) %>%
   summarize(avg_rel_abund = mean(agg_rel_abund)) %>% #Take average of all the groups for one host species
-  ungroup() %>% 
-  left_join(., Phycosphere_GRBC_D3) %>%
+  ungroup() %>%
+  left_join(., Phycosphere_GRBC_D3, by = c("genus", "host_species")) %>%
+  mutate(color = if_else(condition = is.na(color), true = "black", false = color)) %>%
   mutate(time = "D3")  %>% 
   mutate(host_species = factor(host_species, levels = c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum")), genus = reorder_within(genus, -avg_rel_abund, host_species))
-
-agg_genus_data_D3_color$color[is.na(agg_genus_data_D3_color$color)]  <- "black"
 
 
 
 
 #Matches the color of each species in the graph below
 #Relative abundance curves
-agg_genus_data_D3_color %>%
+color_chlorella <- agg_genus_data_D3_color %>%
+  filter(host_species == "Chlorella") %>%
+  select(color, genus, avg_rel_abund) %>%
+  arrange(desc(avg_rel_abund))
+agg_genus_data_D3_color %>% 
+  filter(host_species == "Chlorella") %>%
   #Reorder genus by average relative abundance to get a smooth curve
   ggplot( aes(x = genus, y = avg_rel_abund, fill = host_species)) +
   geom_bar(stat = "Identity") +
-  
+  theme(axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 70, hjust = 1, size = 10, color = color_chlorella$color),
+    axis.title.y = element_text(size = 10),
+    axis.text.y = element_text(size = 10)) +
   #facet_wrap(~host_species, scales = "free_y", dir = "v") +
   scale_fill_manual(values = c("#7FC97F", "#BEAED4","#E0115F","#FFD400","#386CB0")) +
-  theme(axis.title.x = element_blank(),
-    axis.text.x = element_text(size = 10),
-    axis.title.y = element_text(size = 10),
-    axis.text.y = element_textangle = 70, hjust = 1, size = 10, color = agg_genus_data_D3_color$color) +
   guides(fill = guide_legend(size = 10)) +
   labs( y = "Relative Abundance (Genus)", title = "Day 3 Genera Present in Host Phycospheres", fill = "Host Species") +
   scale_y_continuous("Average Relative Abundance") +
-   scale_x_reordered() +
-  coord_flip()
-
+   scale_x_reordered()
 df <- agg_genus_data_D3_color
 
 df %>%
-  ggplot( aes(x = fct_inorder(genus, host_species), y = avg_rel_abund, fill = host_species)) +
+  ggplot( aes(x = fct_inorder(genus, avg_rel_abund), y = avg_rel_abund, fill = host_species))+
   geom_col() +
+  geom_text(aes(label = host_species, y = Inf), vjust = 1, size = 3)+
   scale_fill_manual(values = c("#7FC97F", "#BEAED4","#E0115F","#FFD400","#386CB0"))+
-  geom_text(aes(label = host_species, y = Inf), vjust = 1, size = 3) +
   theme(axis.title.x = element_blank(),
     axis.text.x = element_text(angle = 70, hjust = 1, size = 10, color = df$color),
     axis.title.y = element_text(size = 10),
