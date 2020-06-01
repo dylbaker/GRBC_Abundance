@@ -1,0 +1,304 @@
+---
+title: "GRBC_DeSeq2"
+author: "Dylan Baker"
+date: "6/2/2020"
+output: html_document
+---
+
+```{r}
+require("knitr")
+## Loading required package: knitr
+#same wd for all chunks
+#opts_knit$set(root.dir = "~/Desktop/CRUDE_EEB401")
+
+knitr::opts_chunk$set(eval = TRUE, 
+                      echo = TRUE, 
+                      cache = FALSE,
+                      include = TRUE,
+                      collapse = FALSE,
+                      message=FALSE,
+                      warning=FALSE,
+                      dependson = NULL,
+                      engine = "R", # Chunks will always have R code, unless noted
+                      error = TRUE,
+                      #Figure options
+                      dev = c("png", "pdf"),
+                      fig.path="outfiles_demo/",  
+                      fig.align = "center", 
+                      fig.width = 8,
+                      fig.height = 6
+)
+
+```
+```{r setup}
+
+#libraries and packages
+list.of.packages <- c(
+  "knitr",
+  "ggplot2",
+  "vegan",
+  "dplyr",
+  "DESeq2",
+  "scales",
+  "grid",
+  "reshape2",
+  "plyr",
+  "phyloseq",
+  "magrittr",
+  "geosphere",
+  "matrixStats",
+  "data.table",
+  "DT",
+  "tidyverse"
+  ) 
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])] 
+
+if(length(new.packages)) install.packages(new.packages)
+if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+BiocManager::install("Phyloseq")
+BiocManager::install("DESeq2")
+BiocManager::valid("DESeq2")
+
+#source codes
+#source("https://raw.githubusercontent.com/joey711/phyloseq/master/inst/scripts/installer.R", local = TRUE)
+#source("https://bioconductor.org/biocLite.R")
+#biocLite("DESeq2")
+#biocLnite("annotate")
+#biocLite('phyloseq')
+
+library(ggplot2) 
+library(vegan) 
+library(dplyr) 
+library(scales) 
+library(grid) 
+library(reshape2)
+library(plyr)
+library(phyloseq) 
+library(magrittr)
+library(geosphere)
+library(matrixStats)
+library(data.table)
+library(DT)
+library(DESeq2)
+library(colorspace)
+library(tidyverse)
+#shortened theme
+#theme_set(theme_bw())
+
+
+#set seed so all random number generation is the same
+set.seed(05042019)
+
+```
+### Importing Data and Creating Phyloseq Object
+Import data (three files: shared (OTUfile), taxonomy (TAXfile), and metadata (mapfile)) Then combining data files into one phyloseq object for analysis (all_data)
+
+```{r data_import_create_phylo, include=FALSE}
+# Assign variables for imported data
+sharedfile = "Phycosphere_stability.file.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.an.unique_list.shared.txt"
+taxfile = "Phycosphere_stability.file.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.an.unique_list.0.03.cons.taxonomy.txt"
+
+# Import mothur data and write a sample name file
+mothur_data <- import_mothur(mothur_shared_file = sharedfile,
+  mothur_constaxonomy_file = taxfile)
+sample_names(mothur_data)
+
+
+write.table(sample_names(mothur_data), file = "Phyco.sample_names.tsv", sep = "\t",
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+# Import sample metadata
+map <- read.table("Phyco.sample_names.tsv", header=FALSE, sep="\t") %>%
+  rename( V1 = "Group")
+
+map <- sample_data(map)
+#head(map)
+rownames(map) <- map$Group
+
+phylo_all <- merge_phyloseq(mothur_data, map) # the final phyloseq object to work with
+phylo_all
+```
+## Filter by Group
+```{r group_filter}
+
+
+# change Rank 1-7 to actual taxonomy labels
+colnames(tax_table(phylo_all)) = c("Domain", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+
+# check that it worked
+rank_names(phylo_all)
+```
+
+```{r seq_counts}
+# make a data frame with a column for the sequence counts of each sample
+phylo_sum_df <- data.frame(sum = sample_sums(phylo_all))
+datatable(phylo_sum_df, 
+          options = list(pageLength = 10),
+          caption = "Sum of sequences per sample"
+          )
+# From sorting this table by decreasing sequence count, we can see that there were a few samples that had only a small number of reads. We will remove these (prune) from our data for analysis later on.
+
+```
+Next we will calculate summary statistics describing the sequence counts with the summary() function. We will then represent these stats with a boxplot and a histogram
+```{r summary}
+
+#summary statistics of sequence counts
+summary(phylo_sum_df$sum)
+
+#histogram of sample read counts
+ggplot(phylo_sum_df, aes(x = sum)) + 
+  geom_histogram(color = "black", fill = "purple", binwidth = 500) +
+  ggtitle("Distribution of sample sequencing depth") + 
+  xlab("Read counts") +
+  geom_vline(xintercept = 1000, linetype="dotted", color = "blue", size=0.5) +
+  geom_vline(xintercept = 500, linetype="dotted", color = "red", size=0.5) +
+  theme(axis.title.y = element_blank())
+
+```
+
+Here we will filtering out (prune) samples with low read counts (<1000). This is called the sample sequencing depth.  We will do this by creating a new pruned phyloseq object (`pruned_all_data`). 
+
+```{r pruning_low_read_samples}
+
+# creating a phyloseq object called pruned_all_data that only includes samples with a sequence depth >1000
+pruned_phyco <- prune_samples(sample_sums(phylo_all) > 500, phylo_all)
+#pruned_all_data
+
+#creating a dataframe with a column for the sequence counts of each sample
+pruned_phyco_sum_df <- data.frame(sum = sample_sums(pruned_phyco))
+#histogram of sample read counts
+ggplot(pruned_phyco_sum_df, aes(x = sum)) + 
+  geom_histogram(color = "black", fill = "purple", binwidth = 500) +
+  ggtitle("Distribution of pruned sample sequencing depth (>500 reads)") + 
+  xlab("Read counts") +
+  geom_vline(xintercept = 1000, linetype="dotted", color = "blue", size=0.5) +
+  theme(axis.title.y = element_blank())
+```
+
+## Removing non-bacterial reads
+
+We will clean up our dataset to only include OTUs that are Bacterial, removing both mitochondiral and chloroplast OTUs. Here, we also remove test, mock community, and negative water controls that were sequenced. At the end of the chunk we create two new phyloseq objects. The first is a copy of our current one that we now call avbot.raw. Then in the second one, we log-transform the sample counts and write that into the phyloseq object called `avbot`. Why might we want to log-transform the sample counts?
+
+```{r Subset_Phyco}
+
+#plot_bar(phyco, x="sample_type", fill="Phylum") # takes a long time
+
+pruned_phyco_clean <- pruned_phyco %>%
+  subset_taxa(
+    Domain == "Bacteria" &
+    Family  != "mitochondria" &
+    Family   != "Chloroplast"
+  ) 
+
+pruned_phyco_clean
+
+pruned_phyco_clean.raw <- pruned_phyco_clean
+pruned_phyco_clean <- transform_sample_counts(pruned_phyco_clean.raw, function(x) log(1 + x))
+
+```
+```{r phyla colors}
+phyla.colors <- c(Acidobacteria = "grey26", 
+                  Actinobacteria = "palevioletred2", 
+                  Alphaproteobacteria = "steelblue4", 
+                  Armatimonadetes = "red", 
+                  Bacteroidetes = "darkorange", 
+                  "BD1-5" = "chartreuse", 
+                  Betaproteobacteria = "royalblue", 
+                  Caldiserica = "black",
+                  "WS1" = "red", 
+                  "WPS-2" = "aquamarine1", 
+                  "Candidate_division_OD1" = "#6DDE88", 
+                  "Candidate_division_OP3" = "yellow1", 
+                  "Candidate_division_OP8" = "goldenrod1", 
+                  "Candidate_division_OP11" = "chocolate4", 
+                  "Candidate_division_SR1" = "tan3", 
+                  "Candidate_division_TM7" = "skyblue1", 
+                  "Candidate_division_WS3" = "magenta", 
+                  "Candidate_Division_CK_1C4_19" = "darkseagreen", 
+                  "Candidate_Division_NPL_UPA2" = "darkmagenta", 
+                  "Candidate_Division_RF3" = "bisque", 
+                  "Candidate_Division_TA06" = "cadetblue",  
+                  "Candidate_Division_TM6" = "plum", 
+                  Chlamydiae="violet", 
+                  Chlorobi="cyan2", 
+                  Chloroflexi="darkgreen", 
+                  Crenarchaeota = "khaki1", 
+                  phycobacteria = "chartreuse3", 
+                  Deferribacteres = "slateblue3", 
+                  "Deinococcus-Thermus" = "violetred", 
+                  Dictyoglomi = "cornsilk4", 
+                  Deltaproteobacteria = "deepskyblue", 
+                  "Deinococcus-Thermus" = "lightskyblue1", 
+                  Elusimicrobia = "violetred4",
+                  Epsilonproteobacteria = "lightskyblue", 
+                  Euryarchaeota = "khaki2", 
+                  Fibrobacteres = "hotpink", 
+                  Firmicutes = "blue4", 
+                  FGL7S = "palevioletred1", 
+                  Fusobacteria = "slateblue1",
+                  Euglenozoa = "#652926", 
+                  Gammaproteobacteria = "plum2", 
+                  Gemmatimonadetes="black", 
+                  GOUTA4 = "plum1", 
+                  "Hyd24-12" = "sienna2",
+                  Ignavibacteriae = "sienna2", 
+                  JTB23 = "seashell2", 
+                  Lentisphaerae = "cyan4", 
+                  "MVP_21" = "lightskyblue1", 
+                  Nitrospirae = "yellow1", 
+                  "NPL-UPA2"="#652926", 
+                  Hydrogenedentes = "mediumpurple4", 
+                  Planctomycetes = "mediumorchid3", 
+                  Proteobacteria = "deepskyblue", 
+                  Retaria ="lightsalmon3", 
+                  Kiritimatiellaeota = "lightskyblue2", 
+                  Patescibacteria = "orangered", 
+                  Spirochaetes = "gold2", 
+                  Spirochaetae = "gold3", 
+                  Synergistetes = "olivedrab1", 
+                  Tenericutes="pink", 
+                  Thaumarchaeota = "khaki3", 
+                  BRC1 = "chocolate1", 
+                  Halanaerobiaeota = "lightsalmon3",
+                  Dependentiae = "rosybrown3", 
+                  TM6 = "olivedrab", 
+                  unclassified = "grey", 
+                  Verrucomicrobia = "purple4", 
+                  Epsilonbacteraeota = "palegreen", 
+                  Bacteria_unclassified = "darkgrey")
+```
+
+```{r DeSeq2}
+phyco_deseq <- phyloseq_to_deseq2(pruned_phyco_clean.raw, ~ Group)
+phyco_deseq <- DESeq(phyco_deseq, test = "Wald", fitType="parametric")
+
+res = results(phyco_deseq, cooksCutoff = FALSE)
+alpha = 0.01
+sigtab = res[which(res$padj < alpha),]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(pruned_phyco_clean.raw)[rownames(sigtab), ], "matrix"))
+head(sigtab)
+
+theme_set(theme_bw())
+scale_fill_discrete <- function(palname = "Set1", ...) {
+    scale_fill_brewer(palette = palname, ...)
+}
+# Phylum order
+x = tapply(sigtab$log2FoldChange, sigtab$Phylum, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Phylum = factor(as.character(sigtab$Phylum), levels=names(x))
+# Genus order
+x = tapply(sigtab$log2FoldChange, sigtab$Genus, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Genus = factor(as.character(sigtab$Genus), levels=names(x))
+
+
+ggplot(sigtab, aes(x=Genus, y=log2FoldChange, color=Phylum)) + 
+  theme_bw()+
+  geom_point(alpha=0.9)+
+  scale_size_continuous("OTU counts")+
+  coord_flip()+
+  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5), legend.position = "top") +
+  ylab("<-- Gloeotrichia   log2FoldChange   Microcystis -->")+
+  theme(axis.text.x=element_text(angle=90, vjust=0.1, face="bold.italic"))+
+  ggtitle("Over/Under-Represented OTUs Gloeo vs Microcystis\nLog2FoldChange p<0.05 (DeSeq2)") + theme(plot.title = element_text(lineheight=1))
+```
