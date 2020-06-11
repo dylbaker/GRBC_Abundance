@@ -49,7 +49,9 @@ list.of.packages <- c(
   "matrixStats",
   "data.table",
   "DT",
-  "tidyverse"
+  "tidyverse",
+  "ashr",
+  "pheatmap"
   ) 
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])] 
 
@@ -57,6 +59,7 @@ if(length(new.packages)) install.packages(new.packages)
 if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
 BiocManager::install("Phyloseq")
 BiocManager::install("DESeq2")
+BiocManager::install("apeglm")
 BiocManager::valid("DESeq2")
 
 #source codes
@@ -82,6 +85,9 @@ library(DT)
 library(DESeq2)
 library(colorspace)
 library(tidyverse)
+library(apeglm)
+library(ashr)
+library(pheatmap)
 #shortened theme
 #theme_set(theme_bw())
 
@@ -94,6 +100,18 @@ set.seed(05042019)
 Import data (three files: shared (OTUfile), taxonomy (TAXfile), and metadata (mapfile)) Then combining data files into one phyloseq object for analysis (all_data)
 
 ```{r data_import_create_phylo, include=FALSE}
+#Create a list of jar numbers and their respective host species.
+jar_num <- as_tibble(paste0("J", 1:45, "-")) %>%
+  rename(value = "jar_no") %>%
+  mutate(host_species = ifelse(str_detect(jar_no, paste0("J", 1:9, "-")), "Chlorella",
+                        ifelse(str_detect(jar_no, paste0("J", 10:18, "-")), "Coelastrum",
+                        ifelse(str_detect(jar_no, paste0("J", 19:27, "-")), "Scenedesmus",
+                        ifelse(str_detect(jar_no, paste0("J", 28:36, "-")), "Monoraphidium",
+                        ifelse(str_detect(jar_no, paste0("J", 37:45, "-")), "Selenastrum", "NA"))))))
+jar_no_grbc <- read_csv(file = "Jar_Number_Correction.csv", na = "empty") %>%
+  mutate(jar = paste0(jar_no, "-")) %>%
+  select(Isolate_Number, jar)
+
 # Assign variables for imported data
 sharedfile = "Phycosphere_stability.file.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.an.unique_list.shared.txt"
 taxfile = "Phycosphere_stability.file.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.an.unique_list.0.03.cons.taxonomy.txt"
@@ -109,7 +127,49 @@ write.table(sample_names(mothur_data), file = "Phyco.sample_names.tsv", sep = "\
 
 # Import sample metadata
 map <- read.table("Phyco.sample_names.tsv", header=FALSE, sep="\t") %>%
-  rename( V1 = "Group")
+  rename( V1 = "Group") %>%
+  #Add Host Species Information
+    mutate(host_species = ifelse(str_detect(Group, paste(jar_num$jar_no[1:9], collapse = "|")), "Chlorella",
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[10:18], collapse = "|")), "Coelastrum",
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[19:27], collapse = "|")), "Scenedesmus",
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[28:36], collapse = "|")), "Monoraphidium",
+                        ifelse(str_detect(Group, paste(jar_num$jar_no[37:45], collapse = "|")), "Selenastrum",
+                        ifelse(str_detect(Group, "Blank"),
+"control",
+                        ifelse(str_detect(Group, "P"),
+"natural","NA")))))))) %>%
+  #Add day info e.g. Day 3 or Day 31
+  mutate(time = ifelse(str_detect(Group, "D0-"), "0",
+                       ifelse(str_detect(Group, "D3-"), "3",
+                       ifelse(str_detect(Group, "D10-"), "10",
+                       ifelse(str_detect(Group, "D17-"), "17",
+                       ifelse(str_detect(Group, "D24-"), "24",
+                       ifelse(str_detect(Group, "D31-"), "31", "NA")))
+                                            )))) %>%
+  #Add replicate info (R doesn't support index skipping like python, so this will have to do)
+  mutate(replicate = ifelse(
+  str_detect(Group,paste(jar_num$jar_no[c(1,4,7,10,13,16,19,22,25,28,31,34,37,40,43)], collapse = "|")), "1",
+                     ifelse(
+  str_detect(Group, paste(jar_num$jar_no[c(2,5,8,11,14,17,20,23,26,29,32,35,38,41,44)], collapse = "|")), "2",
+                     ifelse(
+  str_detect(Group, paste(jar_num$jar_no[c(3,6,9,12,15,18,21,24,27,30,33,36,39,42,45)], collapse = "|")), "3",
+  ifelse(str_detect(Group, "R1") | str_detect(Group, "-1"), "1", 
+  ifelse(str_detect(Group, "R2") | str_detect(Group, "-2"), "2",
+  ifelse(str_detect(Group, "R3"), "3", "NA"))))))) %>%
+  #Add Pond info
+  mutate(pond = ifelse(
+  str_detect(Group,paste(jar_num$jar_no[c(1:3,10:12,19:21,28:30,37:39)], collapse = "|")), "1",
+                     ifelse(
+  str_detect(Group, paste(jar_num$jar_no[c(4:6,13:15,22:24,31:33,40:42)], collapse = "|")), "2",
+                     ifelse(
+  str_detect(Group, paste(jar_num$jar_no[c(7:9,16:18,25:27,34:36,43:45)], collapse = "|")), "3", 
+    ifelse(str_detect(Group, "P1"), "1", 
+    ifelse(str_detect(Group, "P2"), "2",
+    ifelse(str_detect(Group, "P3"), "3", "NA"))))))) %>%
+  #Add filter type info 
+  mutate(filter = ifelse(str_detect(Group, "022um"), "022um",
+         ifelse(str_detect(Group, "30um") | str_detect(Group, "03um"), "3um", "NA")))
+
 
 map <- sample_data(map)
 #head(map)
@@ -161,7 +221,7 @@ Here we will filtering out (prune) samples with low read counts (<1000). This is
 ```{r pruning_low_read_samples}
 
 # creating a phyloseq object called pruned_all_data that only includes samples with a sequence depth >1000
-pruned_phyco <- prune_samples(sample_sums(phylo_all) > 500, phylo_all)
+pruned_phyco <- prune_samples(sample_sums(phylo_all) > 1000, phylo_all)
 #pruned_all_data
 
 #creating a dataframe with a column for the sequence counts of each sample
@@ -188,7 +248,10 @@ pruned_phyco_clean <- pruned_phyco %>%
     Domain == "Bacteria" &
     Family  != "mitochondria" &
     Family   != "Chloroplast"
-  ) 
+  )%>%
+  subset_samples(
+    time == "3" | time == "31" & filter == "022um"
+  )
 
 pruned_phyco_clean
 
@@ -266,17 +329,42 @@ phyla.colors <- c(Acidobacteria = "grey26",
                   Verrucomicrobia = "purple4", 
                   Epsilonbacteraeota = "palegreen", 
                   Bacteria_unclassified = "darkgrey")
+get_random_grid_colors <- function(ncolor,seed = sample_seq(1, 1000000, 1)) {
+  require(uniformly)
+  set.seed(seed)
+  print(seed)
+  ngrid <- ceiling(ncolor^(1/3))
+  x <- seq(0,1,length=ngrid+1)[1:ngrid]
+  dx <- (x[2] - x[1])/2
+  x <- x + dx
+  origins <- expand.grid(x,x,x)
+  nbox <- nrow(origins) 
+  RGB <- vector("numeric",nbox)
+  for(i in seq_len(nbox)) {
+    rgb <- runif_in_cube(n=1,d=3,O=as.numeric(origins[i,]),r=dx)
+    RGB[i] <- rgb(rgb[1,1],rgb[1,2],rgb[1,3])
+  }
+  index <- sample(seq(1,nbox),ncolor)
+  RGB[index]
+} 
+
+colors <- get_random_grid_colors(15, seed = 904057)
 ```
 
 ```{r DeSeq2}
 phyco_deseq <- phyloseq_to_deseq2(pruned_phyco_clean.raw, ~ Group)
-phyco_deseq <- DESeq(phyco_deseq, test = "Wald", fitType="parametric")
+phyco_deseq$Group <- factor(paste0(phyco_deseq$host_species, phyco_deseq$time))
+phyco_deseq <- DESeq(phyco_deseq, test = "Wald", fitType = "parametric")
 
-res = results(phyco_deseq, cooksCutoff = FALSE)
+#A simple plot of the concentration of counts in a single sample over the sum of counts per gene. Not technically the same as "sparsity", but this plot is useful diagnostic for datasets which might not fit a negative binomial assumption: genes with many zeros and individual very large counts are difficult to model with the negative binomial distribution.
+plotSparsity(phyco_deseq)
+
+res = results(phyco_deseq)
 alpha = 0.01
 sigtab = res[which(res$padj < alpha),]
 sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(pruned_phyco_clean.raw)[rownames(sigtab), ], "matrix"))
 head(sigtab)
+plotMA(res, ylim = c(-2,2))
 
 theme_set(theme_bw())
 scale_fill_discrete <- function(palname = "Set1", ...) {
@@ -286,19 +374,86 @@ scale_fill_discrete <- function(palname = "Set1", ...) {
 x = tapply(sigtab$log2FoldChange, sigtab$Phylum, function(x) max(x))
 x = sort(x, TRUE)
 sigtab$Phylum = factor(as.character(sigtab$Phylum), levels=names(x))
+
 # Genus order
 x = tapply(sigtab$log2FoldChange, sigtab$Genus, function(x) max(x))
 x = sort(x, TRUE)
 sigtab$Genus = factor(as.character(sigtab$Genus), levels=names(x))
 
+results(phyco_deseq)
+results(phyco_deseq, contrast = c("Group", "Chlorella3", "Chlorella31"))
 
-ggplot(sigtab, aes(x=Genus, y=log2FoldChange, color=Phylum)) + 
-  theme_bw()+
-  geom_point(alpha=0.9)+
-  scale_size_continuous("OTU counts")+
-  coord_flip()+
+
+#Shrinkage of effect size (LFC estimates) is useful for visualization and ranking of genes. To shrink the LFC, we pass the dds object to the function lfcShrink. Below we specify to use the apeglm method for effect size shrinkage (Zhu, Ibrahim, and Love 2018), which improves on the previous estimator.
+
+# because we are interested in 5 different host species with time, we set 'coef=10'
+resAsh <- lfcShrink(phyco_deseq, coef = "Group_Chlorella31_vs_Chlorella3", type="ashr") 
+resLFC <- lfcShrink(phyco_deseq, coef = "Group_Chlorella31_vs_Chlorella3", type = "apeglm")
+resNorm <- lfcShrink(phyco_deseq, coef = 10, type = "normal")
+
+par(mfrow=c(1,4), mar=c(4,4,2,1))
+xlim <- c(1,1e5); ylim <- c(-3,3)
+plotMA(resLFC, xlim=xlim, ylim=ylim, main="apeglm")
+plotMA(resAsh, xlim=xlim, ylim=ylim, main="ashr")
+plotMA(resNorm, xlim=xlim, ylim=ylim, main = "norm" )
+plotMA(res, xlim=xlim, ylim=ylim, main = "unnormalized" )
+
+
+
+
+sigtabLFC = resLFC[which(res$padj < alpha),]
+sigtabLFC = cbind(as(sigtab, "data.frame"), as(tax_table(pruned_phyco_clean.raw)[rownames(sigtabLFC), ], "matrix"))
+head(sigtabLFC)
+# Phylum order
+x = tapply(sigtabLFC$log2FoldChange, sigtabLFC$Phylum, function(x) max(x))
+x = sort(x, TRUE)
+sigtabLFC$Phylum = factor(as.character(sigtabLFC$Phylum), levels=names(x))
+# Genus order
+x = tapply(sigtabLFC$log2FoldChange, sigtabLFC$Genus, function(x) max(x))
+x = sort(x, TRUE)
+sigtabLFC$Genus = factor(as.character(sigtabLFC$Genus), levels=names(x))
+
+
+
+
+ggplot(sigtabLFC, aes(x=Genus, y=log2FoldChange, color=Phylum)) + 
+  theme_bw() +
+  geom_point(alpha=0.9) +
+  scale_size_continuous("OTU counts") +
+  coord_flip() +
+  scale_color_manual(values = colors) +
   theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5), legend.position = "top") +
-  ylab("<-- Gloeotrichia   log2FoldChange   Microcystis -->")+
+  ylab("<-- Coelastrum   log2FoldChange   Chlorella -->")+
   theme(axis.text.x=element_text(angle=90, vjust=0.1, face="bold.italic"))+
-  ggtitle("Over/Under-Represented OTUs Gloeo vs Microcystis\nLog2FoldChange p<0.05 (DeSeq2)") + theme(plot.title = element_text(lineheight=1))
+  ggtitle("Over/Under-Represented OTUs Coelastrum vs Chlorella\nLog2FoldChange p<0.05 (DeSeq2)") + theme(plot.title = element_text(lineheight=1))
+
+
+sigtabAsh = resAsh[which(res$padj < alpha),]
+sigtabAsh = cbind(as(sigtab, "data.frame"), as(tax_table(pruned_phyco_clean.raw)[rownames(sigtabAsh), ], "matrix"))
+
+head(sigtabAsh)
+# Phylum order
+x = tapply(sigtabAsh$log2FoldChange, sigtabAsh$Phylum, function(x) max(x))
+x = sort(x, TRUE)
+sigtabAsh$Phylum = factor(as.character(sigtabAsh$Phylum), levels=names(x))
+# Genus order
+x = tapply(sigtabAsh$log2FoldChange, sigtabAsh$Genus, function(x) max(x))
+x = sort(x, TRUE)
+sigtabAsh$Genus = factor(as.character(sigtabAsh$Genus), levels=names(x))
+```
+
+```{r phreatmap}
+# this gives log2(n + 1)
+ntd <- normTransform(phyco_deseq)
+select <- order(rowMeans(counts(phyco_deseq, normalized=TRUE)),
+                decreasing=TRUE) [1:20]
+df <- as.data.frame(colData(phyco_deseq)[,c("time","host_species")])
+
+pheatmap(assay(ntd)[select,], cluster_rows=FALSE, show_rownames=TRUE,
+         cluster_cols=TRUE, annotation_col=df)
+
+vsd <- vst(phyco_deseq, blind = FALSE)
+
+
+
 ```
