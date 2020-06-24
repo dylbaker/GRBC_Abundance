@@ -2,7 +2,8 @@
 title: "GRBC_DeSeq2"
 author: "Dylan Baker"
 date: "6/2/2020"
-output: html_document
+output:
+  html_document
 ---
 
 ```{r}
@@ -88,6 +89,7 @@ library(tidyverse)
 library(apeglm)
 library(ashr)
 library(pheatmap)
+library(RColorBrewer)
 #shortened theme
 #theme_set(theme_bw())
 
@@ -98,6 +100,18 @@ set.seed(05042019)
 ```
 ### Importing Data and Creating Phyloseq Object
 Import data (three files: shared (OTUfile), taxonomy (TAXfile), and metadata (mapfile)) Then combining data files into one phyloseq object for analysis (all_data)
+
+# Research Goals
+
+**Research Question** Look for differences between the associated microbes of host algae after 3 and 31 days of exposure to water from three George Reserve Ponds. I want to compare the difference between the natural community at day 0 and specific associated bacteria with the 5 algae at day 3 and day 31. How does the community change over time? Is there a specific genus of bacteria that is selected for after 31 days? Are there genera present in the natural pond communities that are not present in host phycosphere samples?
+
+*Hypothesis 1* I hypothesize that there will be genera present at a higher relative abundance in host phycospheres that will not be present in the natural community
+
+*Hypothesis 2* I hypothesize that there will be specific genera that are recruited by algae and that these genera are responsible for carbon cycling, vitamin production, algicide production, or other beneficial activities that will increase the fitness of the host algae.
+
+**This Analysis**
+
+**Results**
 
 ```{r data_import_create_phylo, include=FALSE}
 #Create a list of jar numbers and their respective host species.
@@ -224,6 +238,7 @@ Here we will filtering out (prune) samples with low read counts (<1000). This is
 pruned_phyco <- prune_samples(sample_sums(phylo_all) > 1000, phylo_all)
 #pruned_all_data
 
+
 #creating a dataframe with a column for the sequence counts of each sample
 pruned_phyco_sum_df <- data.frame(sum = sample_sums(pruned_phyco))
 #histogram of sample read counts
@@ -250,13 +265,63 @@ pruned_phyco_clean <- pruned_phyco %>%
     Family   != "Chloroplast"
   )%>%
   subset_samples(
-    time == "3" | time == "31" & filter == "022um"
+    time == "3" | time == "31" | time == "0" & filter == "022um"
   )
 
 pruned_phyco_clean
 
 pruned_phyco_clean.raw <- pruned_phyco_clean
-pruned_phyco_clean <- transform_sample_counts(pruned_phyco_clean.raw, function(x) log(1 + x))
+scaled_phyco_clean <- transform_sample_counts(pruned_phyco_clean.raw, function(x) log(1 + x))
+sampsums <- data.frame(sums = sample_sums(scaled_phyco_clean))
+
+ggplot(sampsums, aes(x = sums)) + geom_histogram(binwidth = 5)
+
+#Betadiv pcoa Bray-Curtis all data
+physeq.pcoa <- 
+  ordinate(
+    physeq = scaled_phyco_clean,
+    method = "PCoA",
+    distance = "bray"
+  )
+
+physeq.pcoa.vectors <- data.frame(physeq.pcoa$vectors[, 1:4])
+#physeq.pcoa.vectors$Duplicates <- row.names(physeq.pcoa.vectors)
+physeq.pcoa.df <- merge(physeq.pcoa.vectors,data.frame(sample_data(scaled_phyco_clean)),by="row.names")
+bray_values <- physeq.pcoa$values
+bray_rel_eigens <- bray_values$Relative_eig
+bray_rel_eigen1 <- bray_rel_eigens[1]
+bray_rel_eigen1_percent <- round(bray_rel_eigen1 * 100, digits = 1)
+bray_rel_eigen2 <- bray_rel_eigens[2]
+bray_rel_eigen2_percent <- round(bray_rel_eigen2 * 100, digits = 1)
+bray_rel_eigen3 <- bray_rel_eigens[3]
+bray_rel_eigen3_percent <- round(bray_rel_eigen3 * 100, digits = 1)
+bray_rel_eigen4 <- bray_rel_eigens[4]
+bray_rel_eigen4_percent <- round(bray_rel_eigen4 * 100, digits = 1)
+bray_axis1 <- paste("PCoA1:",bray_rel_eigen1_percent,"%")
+bray_axis2 <- paste("PCoA2:",bray_rel_eigen2_percent,"%")
+bray_axis3 <- paste("PCoA3:",bray_rel_eigen3_percent,"%")
+bray_axis4 <- paste("PCoA4:",bray_rel_eigen4_percent,"%")
+PCoA_title <- paste("Bray-Curtis,",ntaxa(scaled_phyco_clean),"OTUs")
+
+physeq.pcoa.df %>% 
+  ggplot(aes(Axis.1, Axis.2, color = host_species, shape = time)) +
+  xlab(bray_axis1) + ylab(bray_axis2) + ggtitle(PCoA_title) +
+  geom_point(alpha=0.9) + theme_bw() + #ylim(1, -1) + xlim(1, -1) 
+  scale_shape_manual(name = "time", breaks=c("0","3", "31"),
+                     labels = c("Day 0","Day 3", "Day 31"), 
+                     values = c("0" = 18, "3" = 15, "31" = 16 )) +
+  scale_color_manual(name = "host_species", breaks=c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum", "control", "natural"),
+                     labels = c("Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum", "Control", "Natural"), 
+                     values = c("Chlorella" = "#7FC97F", "Coelastrum" = "#BEAED4", "Scenedesmus" ="#E0115F", "Monoraphidium" = "#FDC086", "Selenastrum" = "#386CB0", "control" = "#35978f", "natural" = "#bf812d")) +
+  theme(plot.title = element_text(face="bold", size=8),  #Set the plot title
+        axis.text.x = element_text(colour="black", vjust=0.5, size=8), 
+        axis.text.y = element_text(colour="black", vjust=0.5, size=8),
+        axis.title.x = element_text(face="bold", size=8),
+        axis.title.y = element_text(face="bold", size=8),
+        legend.title = element_text(size=12, face="bold"),
+        legend.text = element_text(size = 12),
+        ###LEGEND TOP RIGHT CORNER
+        legend.position = "right") 
 
 ```
 ```{r phyla colors}
