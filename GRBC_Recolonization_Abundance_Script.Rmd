@@ -59,7 +59,8 @@ list.of.packages <- c(
   "RColorBrewer",
   "reprex",
   "forcats",
-  "patchwork"
+  "patchwork",
+  "xlsx"
 )
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])] 
 if(length(new.packages)) install.packages(new.packages)
@@ -87,6 +88,7 @@ library(RColorBrewer)
 library(reprex)
 library(forcats)
 library(patchwork)
+library(xlsx)
 #set seed so all random number generation is the same
 set.seed(05042019)
 
@@ -284,7 +286,7 @@ Phycosphere_otu_D31 <- Phycosphere_otu_count %>%
   filter(str_detect(Group,"-D31-") & str_detect(Group,"022um"))
 
 Phycosphere_otu_D3_3um <- Phycosphere_otu_count %>% 
-  filter((str_detect(Group,"-D3-")) & str_detect(Group,"30um") ) #D31 3.0um does not exist
+  filter((str_detect(Group,"-D3-")) & str_detect(Group,"30um")) #D31 3.0um does not exist
 
 
 
@@ -295,10 +297,12 @@ Phycosphere_otu_D3_3um <- Phycosphere_otu_count %>%
 
 #Separate D3 and D31 data
 agg_genus_data_D3_3um <- inner_join(Phycosphere_otu_D3_3um, Phycosphere_tax) %>% #Groups by otu automatically
-  group_by(genus, Group, host_species, replicate) %>% #Triplicate 1 is J1,2,3 and so on for each host species
+  group_by(genus, Group, host_species, pond) %>% #Triplicate 1 is J1,2,3 and so on for each host species
   summarize(agg_rel_abund=sum(rel_abund)) %>% #Add together OTUs of the same group that are identical to get an aggregate abundance for each genus
   ungroup() %>%
-  mutate(time = "D3")
+  mutate(time = "D3") %>%
+  mutate(genus=str_replace_all(string=genus,
+    pattern="Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium", replacement="A-N-P-R")) 
 
 
 #D3 Algal Host Genus Makeup
@@ -437,10 +441,13 @@ ggarrange(plot_D3 + font("xlab", size = 10), plot_D31 + rremove("ylab") + font("
           common.legend = TRUE, legend = "bottom", nrow = 1, ncol = 2, labels = "AUTO")
 ggsave(filename = "D3-D31 Phycosphere Comparison.png",  dpi = 300, path = "./figures", width = 10, height = 8)
 
-#Recombine as one dataframe for contamination checks
-agg_genus_data <- merge(agg_genus_data_D3, agg_genus_data_D31, all=TRUE)
-# unique genera
-length(unique(agg_genus_data$genus))
+ #Recombine as one dataframe for contamination checks
+agg_genus_data <- merge(agg_genus_data_D3, agg_genus_data_D31, all=TRUE) %>%
+  merge(., agg_genus_data_D3_3um, all = TRUE)
+
+  
+# # unique genera
+# length(unique(agg_genus_data$genus))
 
 top_genera <- agg_genus_data %>%
 		group_by(genus, time) %>%
@@ -470,7 +477,7 @@ Phycosphere_GRBC_D3 <- inner_join(GRBC_all_tax, agg_genus_data_D3) %>%
   summarize(avg_rel_abund = mean(agg_rel_abund)) %>% #Take average of all the groups for one host species
   ungroup() %>%
   select(genus, host_species, color)
- 
+
 
 Phycosphere_GRBC_D31 <- inner_join(GRBC_all_tax, agg_genus_data_D31) %>%
   filter(str_detect(otu, "D31"))  %>%
@@ -482,8 +489,12 @@ Phycosphere_GRBC_D31 <- inner_join(GRBC_all_tax, agg_genus_data_D31) %>%
 #Isolates that are probably contaminants, not represented in phycosphere data
 Phycosphere_GRBC_cont <- anti_join(GRBC_all_tax, agg_genus_data) %>%
   mutate(contaminated = TRUE)
+Phycosphere_GRBC_match <- inner_join(GRBC_all_tax, agg_genus_data) %>%
+  mutate(contaminated = FALSE)
+
 Phycosphere_GRBC_cont %>% group_by(genus) %>%
   summarize(distinct_genus = n_distinct(genus))
+write.xlsx( full_join(Phycosphere_GRBC_match, Phycosphere_GRBC_cont), "GRBC_Match&Cont.xlsx")
 
 agg_genus_data_D3_color <- agg_genus_data_D3 %>% 
   #Filter out reads below a threshold (1/500 worked best) that are not part of our isolate collection
@@ -769,6 +780,27 @@ patchwork +
 )
 ggsave(filename = "Isolates D3-D31 Phycosphere Comparison.png",  dpi = 300, path = "./figures", width = 15, height = 18)
 
+patchwork_mini <- (sce_D3 | sce_D31 + rremove("ylab"))
+
+patchwork_mini +
+plot_annotation(
+    tag_levels = "A",
+) + plot_layout(
+  guides = 'collect'
+) & theme(
+  legend.spacing = unit(0, 'cm'),
+  legend.text = element_text(size = 12, angle = 90),
+  legend.title = element_text(size = 14, color = "#E0115F", angle = 90),
+  axis.text.x = element_text(size = 12),
+  axis.text.y = element_text(color = "black"),
+    panel.background = element_rect(fill = "transparent"), # bg of the panel
+    plot.background = element_rect(fill = "transparent", color = NA), # bg of the plot
+    panel.grid.major = element_blank(), # get rid of major grid
+    panel.grid.minor = element_blank(), # get rid of minor grid
+    legend.background = element_rect(fill = "transparent"), # get rid of legend bg
+    legend.box.background = element_rect(fill = "transparent"), # get rid of legend panel bg
+)
+ggsave(filename = "Phycosphere Isolate Subset.png",  dpi = 400, path = "./figures", bg = "transparent", width = 16, height = 6)
 ```
 
 
