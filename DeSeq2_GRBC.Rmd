@@ -57,7 +57,7 @@ new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"
 
 if(length(new.packages)) install.packages(new.packages)
 if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
-BiocManager::install("Phyloseq")
+BiocManager::install("phyloseq")
 BiocManager::install("DESeq2")
 BiocManager::install("apeglm")
 BiocManager::valid("DESeq2")
@@ -144,7 +144,7 @@ map <- read.table("Phyco.sample_names.tsv", header=FALSE, sep="\t") %>%
                        ifelse(str_detect(Group, "D10-"), "10",
                        ifelse(str_detect(Group, "D17-"), "17",
                        ifelse(str_detect(Group, "D24-"), "24",
-                       ifelse(str_detect(Group, "D31-"), "31", "NA")))
+                       ifelse(str_detect(Group, "D31-"), "31", NA)))
                                             )))) %>%
   #Add replicate info (R doesn't support index skipping like python, so this will have to do)
   mutate(replicate = ifelse(
@@ -248,14 +248,13 @@ pruned_phyco_clean <- pruned_phyco %>%
     Domain == "Bacteria" &
     Family  != "mitochondria" &
     Family   != "Chloroplast"
-  )%>%
+  ) %>%
   subset_samples(
-    time == "3" | time == "31" & filter == "022um"
+    (time == 3 | time == 31 | time == 0) & str_detect(filter, "022um")
   )
 
-pruned_phyco_clean
-
 pruned_phyco_clean.raw <- pruned_phyco_clean
+
 pruned_phyco_clean <- transform_sample_counts(pruned_phyco_clean.raw, function(x) log(1 + x))
 
 ```
@@ -329,6 +328,7 @@ phyla.colors <- c(Acidobacteria = "grey26",
                   Verrucomicrobia = "purple4", 
                   Epsilonbacteraeota = "palegreen", 
                   Bacteria_unclassified = "darkgrey")
+
 get_random_grid_colors <- function(ncolor,seed = sample_seq(1, 1000000, 1)) {
   require(uniformly)
   set.seed(seed)
@@ -348,16 +348,141 @@ get_random_grid_colors <- function(ncolor,seed = sample_seq(1, 1000000, 1)) {
   RGB[index]
 } 
 
-colors <- get_random_grid_colors(15, seed = 904057)
+colors <- get_random_grid_colors(9, seed = 904057)
+```
+#DESeq2 source code and guide https://bioconductor.org/packages/release/workflows/vignettes/rnaseqGene/inst/doc/rnaseqGene.html#the-deseqdataset-object-sample-information-and-the-design-formula
+```{r Best Variance Estimate DESEQ2}
+phyco_deseq <- phyloseq_to_deseq2(pruned_phyco_clean.raw, ~ host_species + time)
+nrow(phyco_deseq)
+#Remove rows that have no data at all or only a single count across all samples
+keep <- rowSums(counts(phyco_deseq)) > min(rowSums(counts(phyco_deseq)))
+phyco_deseq <- phyco_deseq[keep,]
+nrow(phyco_deseq)
+
+vsd <- varianceStabilizingTransformation(phyco_deseq, blind = FALSE)
+
+dds <- estimateSizeFactors(phyco_deseq)
+
+df <- bind_rows(
+  as_data_frame(log2(counts(dds, normalized=TRUE)[, 1:2]+1)) %>%
+         mutate(transformation = "log2(x + 1)"),
+  as_data_frame(assay(vsd)[, 1:2]) %>% mutate(transformation = "vst"))
+  
+colnames(df)[1:2] <- c("x", "y")  
+
+lvls <- c("log2(x + 1)", "vst")
+df$transformation <- factor(df$transformation, levels=lvls)
+
+ggplot(df, aes(x = x, y = y)) + geom_hex(bins = 80) +
+  coord_fixed() + facet_grid( . ~ transformation) 
+
+sampleDists <- dist(t(assay(vsd)))
+sampleDists
+sampleDistMatrix <- as.matrix( sampleDists )
+rownames(sampleDistMatrix) <- paste( vsd$dex, vsd$cell, sep = " - " )
+colnames(sampleDistMatrix) <- NULL
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows = sampleDists,
+         clustering_distance_cols = sampleDists,
+         col = colors)
+
+library("PoiClaClu")
+poisd <- PoissonDistance(t(counts(dds)))
+samplePoisDistMatrix <- as.matrix( poisd$dd )
+rownames(samplePoisDistMatrix) <- paste( dds$dex, dds$cell, sep=" - " )
+colnames(samplePoisDistMatrix) <- NULL
+pheatmap(samplePoisDistMatrix,
+         clustering_distance_rows = poisd$dd,
+         clustering_distance_cols = poisd$dd,
+         col = colors)
+
+
+library("genefilter")
+topVarOTUs <- head(order(rowVars(assay(vsd)), decreasing = TRUE), 20)
+mat  <- assay(vsd)[ topVarOTUs, ]
+mat  <- mat - rowMeans(mat)
+anno <- as.data.frame(colData(vsd)[, c("host_species","time")])
+ann_colors = list(
+  time = c("0" = "cyan3", "3"= "darkorchid1", "31" = "darkgoldenrod1"),
+  host_species = c(Chlorella = "#7FC97F", Coelastrum = "#BEAED4", Scenedesmus = "#E0115F",Monoraphidium = "#FDC086", Selenastrum = "#386CB0",natural = "#D4D5B0", control = "darkseagreen1")
+)
+pheatmap(mat, annotation_col = anno, color = colorRampPalette(rev(brewer.pal(n = 11, name =
+  "RdYlBu")))(100), annotation_colors = ann_colors, legend_labels = c("time" = "Time", "host_species" = "Host Species"), width = 14, filename = "./figures/variance_OTU_phycospheres.png")
+
+
+```
+```{R PCA Plot}
+pcaData <- plotPCA(vsd, intgroup = c("host_species", "time"), returnData = TRUE)
+
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+ggplot(pcaData, aes(x = PC1, y = PC2, color = host_species, shape = time)) +
+  geom_point(size =3) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  coord_fixed() +
+  ggtitle("PCA with VST data")
+
+
+
+mds <- as.data.frame(colData(vsd))  %>%
+         cbind(cmdscale(sampleDistMatrix))
+ggplot(mds, aes(x = `1`, y = `2`, color = host_species, shape = time)) +
+  geom_point(size = 3) + coord_fixed() + ggtitle("MDS with VST data")
+
+
+mdsPois <- as.data.frame(colData(dds)) %>%
+   cbind(cmdscale(samplePoisDistMatrix))
+ggplot(mdsPois, aes(x = `1`, y = `2`, color = host_species, shape = time)) +
+  geom_point(size = 3) + coord_fixed() + ggtitle("MDS with PoissonDistances")
+```
+```{r DESeq2 Analysis}
+#Do this for a simplified version so that ~"Design" only has to be "Group" for host species and time.
+#phyco_deseq$Group <- factor(paste0(phyco_deseq$host_species, phyco_deseq$time))
+phyco_deseq$host_species %<>% relevel("natural", "control", "Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum")
+phyco_deseq$host_species
+phyco_deseq <- DESeq(phyco_deseq, test = "Wald", model = "Parametric")
+
+
+res <- results(phyco_deseq)
+resultsNames(phyco_deseq)
+
+mcols(res, use.names = TRUE)
+summary(res)
+res.05 <- results(phyco_deseq, alpha = 0.05)
+table(res.05$padj < 0.05)
+
+#Multiple corrections
+sum(res$padj < 0.1, na.rm=TRUE)
+resSig <- subset(res, padj < 0.1)
+head(resSig[ order(resSig$log2FoldChange), ])
+
+#Strongest negative change
+head(resSig[ order(resSig$log2FoldChange), ])
+#Strongest positive change
+head(resSig[ order(resSig$log2FoldChange, decreasing = TRUE), ])
+
+library("ggbeeswarm")
+topOTU <- rownames(res)[which.min(res$padj)]
+geneCounts <- plotCounts(dds, gene = topOTU, intgroup = c("host_species","time"),
+                         returnData = TRUE)
+ggplot(geneCounts, aes(x = time, y = count, color = host_species)) +
+  scale_y_log10() +  geom_beeswarm(cex = 3)
+
+ggplot(geneCounts, aes(x = time, y = count, color = host_species, group = host_species)) +
+  scale_y_log10() + geom_point(size = 3) + geom_line()
+
+
 ```
 
-```{r DeSeq2}
-phyco_deseq <- phyloseq_to_deseq2(pruned_phyco_clean.raw, ~ Group)
-phyco_deseq$Group <- factor(paste0(phyco_deseq$host_species, phyco_deseq$time))
-phyco_deseq <- DESeq(phyco_deseq, test = "Wald", fitType = "parametric")
-
+```{r}
 #A simple plot of the concentration of counts in a single sample over the sum of counts per gene. Not technically the same as "sparsity", but this plot is useful diagnostic for datasets which might not fit a negative binomial assumption: genes with many zeros and individual very large counts are difficult to model with the negative binomial distribution.
 plotSparsity(phyco_deseq)
+resultsNames(phyco_deseq)
+res <- lfcShrink(phyco_deseq, coef = "host_species_Chlorella_vs_natural", type = "apeglm")
+
+plotMA(res, ylim = c(-5,5))
+
 
 res = results(phyco_deseq)
 alpha = 0.01
@@ -381,15 +506,15 @@ x = sort(x, TRUE)
 sigtab$Genus = factor(as.character(sigtab$Genus), levels=names(x))
 
 results(phyco_deseq)
-results(phyco_deseq, contrast = c("Group", "Chlorella3", "Chlorella31"))
+#results(phyco_deseq, contrast = c("Group", "Chlorella3", "Chlorella31"))
 
 
 #Shrinkage of effect size (LFC estimates) is useful for visualization and ranking of genes. To shrink the LFC, we pass the dds object to the function lfcShrink. Below we specify to use the apeglm method for effect size shrinkage (Zhu, Ibrahim, and Love 2018), which improves on the previous estimator.
 
 # because we are interested in 5 different host species with time, we set 'coef=10'
-resAsh <- lfcShrink(phyco_deseq, coef = "Group_Chlorella31_vs_Chlorella3", type="ashr") 
-resLFC <- lfcShrink(phyco_deseq, coef = "Group_Chlorella31_vs_Chlorella3", type = "apeglm")
-resNorm <- lfcShrink(phyco_deseq, coef = 10, type = "normal")
+resAsh <- lfcShrink(phyco_deseq, coef = length(resultsNames(phyco_deseq)), type="ashr") 
+resLFC <- lfcShrink(phyco_deseq, coef = length(resultsNames(phyco_deseq)), type = "apeglm")
+resNorm <- lfcShrink(phyco_deseq, coef = length(resultsNames(phyco_deseq)), type = "normal")
 
 par(mfrow=c(1,4), mar=c(4,4,2,1))
 xlim <- c(1,1e5); ylim <- c(-3,3)
@@ -440,6 +565,17 @@ sigtabAsh$Phylum = factor(as.character(sigtabAsh$Phylum), levels=names(x))
 x = tapply(sigtabAsh$log2FoldChange, sigtabAsh$Genus, function(x) max(x))
 x = sort(x, TRUE)
 sigtabAsh$Genus = factor(as.character(sigtabAsh$Genus), levels=names(x))
+
+ggplot(sigtabAsh, aes(x=Genus, y=log2FoldChange, color=Phylum)) + 
+  theme_bw() +
+  geom_point(alpha=0.9) +
+  scale_size_continuous("OTU counts") +
+  coord_flip() +
+  scale_color_manual(values = colors) +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5), legend.position = "top") +
+  ylab("<-- Coelastrum   log2FoldChange   Chlorella -->")+
+  theme(axis.text.x=element_text(angle=90, vjust=0.1, face="bold.italic"))+
+  ggtitle("Over/Under-Represented OTUs Coelastrum vs Chlorella\nLog2FoldChange p<0.05 (DeSeq2)") + theme(plot.title = element_text(lineheight=1))
 ```
 
 ```{r phreatmap}
