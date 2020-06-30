@@ -714,19 +714,37 @@ coe_D31 <- agg_genus_data_D31_color %>%
 sce_D31 <- agg_genus_data_D31_color %>% 
   filter(host_species == "Scenedesmus") %>%
   #Reorder genus by average relative abundance to get a smooth curve
-  ggplot( aes(x = genus, y = avg_rel_abund, fill = host_species)) +
+  ggplot( aes(x = genus, y = avg_rel_abund, fill = color)) +
   geom_bar(stat = "Identity") +
   theme_minimal() +
-  theme(axis.title.x = element_blank(),
-    axis.text.x = element_text(angle = 70, hjust = 1, size = 9, color = color_scenedesmus$color),
-    axis.title.y = element_text(size = 8),
-    axis.text.y = element_text(size = 10),
-    legend.position="bottom",
-    legend.spacing.x = unit(0, 'cm')) +
-  scale_fill_manual(values = c("#E0115F")) +
-  labs( y = "Relative Abundance (Genus)", x = "Genus", fill = "") +
+  scale_fill_manual(values = c("#E0115F", "black"), name =  '', labels = c("Cultured Isolate", "Not Isolated")) +
+  guides(fill = guide_legend(
+    title = substitute(paste(italic("Scenedesmus acuminatus"), " Phycosphere Bacteria")),
+    title.position = "top"
+  )) +
+  labs( y = "Relative Abundance (Genus)", x = "Genus", fill = '') +
   scale_y_continuous("Average Relative Abundance", limits = c(0, 0.3), breaks = c(0.0, 0.1, 0.2, 0.3)) +
-   scale_x_reordered()  
+  theme(axis.title.x = element_text(size = 16),
+    axis.text.x = element_text(angle = 70, hjust = 1, size = 13,
+                               color = color_scenedesmus$color),
+    panel.background = element_rect(fill = "transparent"), # bg of the panel
+    plot.background = element_rect(fill = "transparent", color = NA), # bg of the plot
+    panel.grid.major = element_blank(), # get rid of major grid
+    panel.grid.minor = element_blank(), # get rid of minor grid
+    legend.background = element_rect(fill = "transparent"), # get rid of legend bg
+    legend.box.background = element_rect(fill = "transparent"),
+    axis.title.y = element_text(size = 16),
+    axis.text.y = element_text(size = 14),
+    legend.position = "bottom",
+    legend.box.just = "center",
+    legend.title = element_text(vjust = .5, size = 14),
+    legend.text = element_text(vjust = .5, size = 13
+    )) +
+   scale_x_reordered() +
+  ggtitle(label = "Rank Abundance Curve Based on 16S v4 Tag Sequencing of Phycosphere Communities" , subtitle = "Representative Plot")
+
+ # expression(atop('Abundant and Rare Genera Isolated from '* italic('Scenedesmus acuminatus'), ' Phycosphere After 31 Days of Exposure to a Natural Pond Community'))
+ggsave(filename = "Phycosphere Isolate Subset.png",  dpi = 400, path = "./figures", bg = "transparent", width = 16, height = 6)
 
 mon_D31 <- agg_genus_data_D31_color %>% 
   filter(host_species == "Monoraphidium") %>%
@@ -769,8 +787,6 @@ patchwork <- ((chl_D3 | chl_D31 + rremove("ylab")) / (coe_D3 | coe_D31 + rremove
 patchwork + 
   plot_annotation(
     tag_levels = "A",
-) + plot_layout(
-  guides = 'collect'
 ) & theme(
   legend.spacing = unit(0, 'cm'),
   legend.box.just = 'left',
@@ -780,26 +796,8 @@ patchwork +
 )
 ggsave(filename = "Isolates D3-D31 Phycosphere Comparison.png",  dpi = 300, path = "./figures", width = 15, height = 18)
 
-patchwork_mini <- (sce_D3 | sce_D31 + rremove("ylab"))
+#Creating a representative plot for the poster.
 
-patchwork_mini +
-plot_annotation(
-    tag_levels = "A",
-) + plot_layout(
-  guides = 'collect'
-) & theme(
-  legend.spacing = unit(0, 'cm'),
-  legend.text = element_text(size = 12, angle = 90),
-  legend.title = element_text(size = 14, color = "#E0115F", angle = 90),
-  axis.text.x = element_text(size = 12),
-  axis.text.y = element_text(color = "black"),
-    panel.background = element_rect(fill = "transparent"), # bg of the panel
-    plot.background = element_rect(fill = "transparent", color = NA), # bg of the plot
-    panel.grid.major = element_blank(), # get rid of major grid
-    panel.grid.minor = element_blank(), # get rid of minor grid
-    legend.background = element_rect(fill = "transparent"), # get rid of legend bg
-    legend.box.background = element_rect(fill = "transparent"), # get rid of legend panel bg
-)
 ggsave(filename = "Phycosphere Isolate Subset.png",  dpi = 400, path = "./figures", bg = "transparent", width = 16, height = 6)
 ```
 
