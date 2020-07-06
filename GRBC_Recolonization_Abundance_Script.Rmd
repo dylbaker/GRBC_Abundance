@@ -719,13 +719,15 @@ sce_D31 <- agg_genus_data_D31_color %>%
   theme_minimal() +
   scale_fill_manual(values = c("#E0115F", "black"), name =  '', labels = c("Cultured Isolate", "Not Isolated")) +
   guides(fill = guide_legend(
-    title = substitute(paste(italic("Scenedesmus acuminatus"), " Phycosphere Bacteria")),
-    title.position = "top"
+    title = quote(paste(italic("Scenedesmus acuminatus"))),
+    title.position = "top",
+    nrow = 2, byrow = TRUE
   )) +
-  labs( y = "Relative Abundance (Genus)", x = "Genus", fill = '') +
-  scale_y_continuous("Average Relative Abundance", limits = c(0, 0.3), breaks = c(0.0, 0.1, 0.2, 0.3)) +
-  theme(axis.title.x = element_text(size = 16),
-    axis.text.x = element_text(angle = 70, hjust = 1, size = 13,
+  labs( y = "Relative Abundance (Genus)", x = "Genus", fill = '',
+        title = "Rank Abundance Curve Based on 16S v4 Tag Sequencing of Phycosphere Communities") +
+  scale_y_continuous("Average Relative Abundance", limits = c(0, 0.2), breaks = c(0.0, 0.1, 0.2)) +
+  theme(axis.title.x = element_text(size = 20),
+    axis.text.x = element_text(angle = 70, hjust = 1, size = 15,
                                color = color_scenedesmus$color),
     panel.background = element_rect(fill = "transparent"), # bg of the panel
     plot.background = element_rect(fill = "transparent", color = NA), # bg of the plot
@@ -733,18 +735,18 @@ sce_D31 <- agg_genus_data_D31_color %>%
     panel.grid.minor = element_blank(), # get rid of minor grid
     legend.background = element_rect(fill = "transparent"), # get rid of legend bg
     legend.box.background = element_rect(fill = "transparent"),
-    axis.title.y = element_text(size = 16),
-    axis.text.y = element_text(size = 14),
-    legend.position = "bottom",
+    axis.title.y = element_text(size = 15),
+    axis.text.y = element_text(size = 15),
+    legend.position = "right",
     legend.box.just = "center",
-    legend.title = element_text(vjust = .5, size = 14),
-    legend.text = element_text(vjust = .5, size = 13
-    )) +
-   scale_x_reordered() +
-  ggtitle(label = "Rank Abundance Curve Based on 16S v4 Tag Sequencing of Phycosphere Communities" , subtitle = "Representative Plot")
+    legend.direction = "vertical",
+    legend.title = element_text(vjust = .5, size = 16),
+    legend.text = element_text(vjust = .5, size = 15),
+    plot.title = element_text(hjust = .5, size = 20)) +
+   scale_x_reordered()
 
  # expression(atop('Abundant and Rare Genera Isolated from '* italic('Scenedesmus acuminatus'), ' Phycosphere After 31 Days of Exposure to a Natural Pond Community'))
-ggsave(filename = "Phycosphere Isolate Subset.png",  dpi = 400, path = "./figures", bg = "transparent", width = 16, height = 6)
+ggsave(filename = "Phycosphere Isolate Subset.png",  dpi = 400, path = "./figures", bg = "transparent", width = 15, height = 6)
 
 mon_D31 <- agg_genus_data_D31_color %>% 
   filter(host_species == "Monoraphidium") %>%
