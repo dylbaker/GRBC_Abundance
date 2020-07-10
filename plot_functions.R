@@ -30,7 +30,7 @@ abundance_plot_isolate <- function(species_name, data, color_data, bar_color, ge
           legend.position = "bottom",
           legend.box.just = "center",
           legend.direction = "vertical",
-          legend.title = element_text(vjust = .5, size = 14),
+          legend.title = element_text(vjust = .5, size = 12),
           legend.text = element_text(vjust = .5, size = 12),
           plot.title = element_text(hjust = .5, size = 16)) +
     scale_x_reordered()

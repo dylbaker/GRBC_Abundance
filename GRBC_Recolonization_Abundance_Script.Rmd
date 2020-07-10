@@ -616,7 +616,7 @@ nat_comm_D0 <- agg_genus_data_D3 %>%
   theme_minimal() +
     scale_fill_manual(values = c("#D4D5B0"), name = 'Pond Community Day 0', labels = c("Natural Inhabitant")) +
     labs( y = "Relative Abundance (Genus)", x = "Genus", fill = 'Pond Community Day 0',
-          title = "Rank Abundance Curve Based on 16S v4 Tag Sequencing of Initial Pond Communities") +
+          title = "Rank Abundance Curves Based on 16S v4 Tag Sequencing") +
   theme(axis.title.x = element_text(size = 12),
           axis.text.x = element_text(angle = 70, hjust = 1, size = 14,
                                      color = "black"),
@@ -626,12 +626,12 @@ nat_comm_D0 <- agg_genus_data_D3 %>%
           panel.grid.minor = element_blank(), # get rid of minor grid
           legend.background = element_rect(fill = "transparent"), # get rid of legend bg
           legend.box.background = element_rect(fill = "transparent"),
-          axis.title.y = element_text(size = 12),
-          axis.text.y = element_text(size = 12),
+          axis.title.y = element_text(size = 10),
+          axis.text.y = element_text(size = 10),
           legend.position = "bottom",
           legend.box.just = "center",
           legend.direction = "vertical",
-          legend.title = element_text(vjust = .5, size = 14),
+          legend.title = element_text(vjust = .5, size = 12),
           legend.text = element_text(vjust = .5, size = 12),
           plot.title = element_text(hjust = .5, size = 16)) +
   labs( y = "Relative Abundance (Genus)", x = "Genus",  fill = "" ) +
@@ -639,7 +639,7 @@ nat_comm_D0 <- agg_genus_data_D3 %>%
    scale_x_reordered()
 #Create a combined figure using patchwork
 
-patchwork <- ((chl_D3 | chl_D31 + rremove("ylab")) / (coe_D3 | coe_D31 + rremove("ylab")) / (sce_D3 | sce_D31 + rremove("ylab")) / (mon_D3 | mon_D31 + rremove("ylab")) / (sel_D3 | sel_D31+ rremove("ylab")) / nat_comm_D0) 
+patchwork <- (nat_comm_D0 / (chl_D3 | chl_D31 + rremove("ylab")) / (coe_D3 | coe_D31 + rremove("ylab")) / (sce_D3 | sce_D31 + rremove("ylab")) / (mon_D3 | mon_D31 + rremove("ylab")) / (sel_D3 | sel_D31+ rremove("ylab"))) 
 
 patchwork + 
   plot_annotation(
@@ -653,7 +653,7 @@ patchwork +
   legend.title = element_text(size = 16),
   axis.text.x = element_text(size = 10)
 )
-ggsave(filename = "Isolates D3-D31 Phycosphere Comparison.png",  dpi = 300, path = "./figures", width = 15, height = 20)
+ggsave(filename = "Isolates D3-D31 Phycosphere Comparison.png",  dpi = 300, path = "./figures", width = 14, height = 18)
 
 ```
 
