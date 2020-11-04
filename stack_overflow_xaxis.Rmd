@@ -1,0 +1,38 @@
+---
+title: "stack_overflow_xaxis"
+author: "Dylan Baker"
+date: "5/29/2020"
+output: html_document
+---
+```{r reprex}
+library(tidyverse)
+library(tidytext)
+library(reprex)
+
+ df <- structure(list(genus = structure(c(3L, 1L, 4L, 2L, 5L), .Label = c("Vogesella___Coelastrum", 
+    "Vogesella___Scenedesmus", "Vogesella___Chlorella", "Vogesella___Monoraphidium", 
+    "Vogesella___Selenastrum"), class = "factor"), host_species = structure(c(1L, 
+    2L, 4L, 3L, 5L), .Label = c("Chlorella", "Coelastrum", "Scenedesmus", 
+    "Monoraphidium", "Selenastrum"), class = "factor"), avg_rel_abund = c(0.0476201763676562, 
+    0.0723617033127999, 0.0254124767307784, 0.0615452700310325, 0.0124210779718639
+    ), time = c("D3", "D3", "D3", "D3", "D3"), color = c("#7FC97F", 
+    "#BEAED4", "black", "#FDC086", "#386CB0")), row.names = c(NA, 
+    -5L), class = c("tbl_df", "tbl", "data.frame"))
+
+df %>%
+      ggplot( aes(x = genus, y = avg_rel_abund, fill = host_species))+
+      geom_col(stat = "Identity") +
+      #facet_grid(cols = vars(host_species), scales = "free") +
+      scale_fill_brewer(type = "qual", palette = 1) +
+      theme(axis.title.x = element_blank(),
+      axis.text.x = element_text(angle = 70, hjust = 1, size = 10, 
+      color = df$color),
+      axis.title.y = element_text(size = 10),
+      axis.text.y = element_text(size = 10)) +
+      guides(fill = guide_legend(size = 10)) +
+      labs( y = "Relative Abundance (Genus)", title = "Day 3 Genera 
+      Present in Host Phycospheres", fill = "Host Species") +
+      scale_y_continuous("Average Relative Abundance") +
+      scale_x_reordered()
+
+```

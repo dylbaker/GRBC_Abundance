@@ -51,7 +51,8 @@ list.of.packages <- c(
   "DT",
   "tidyverse",
   "ashr",
-  "pheatmap"
+  "pheatmap",
+  "RColorBrewer"
   ) 
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])] 
 
@@ -88,12 +89,14 @@ library(tidyverse)
 library(apeglm)
 library(ashr)
 library(pheatmap)
+library(RColorBrewer)
 #shortened theme
 #theme_set(theme_bw())
 
 
 #set seed so all random number generation is the same
 set.seed(05042019)
+source("plot_functions.R")
 
 ```
 ### Importing Data and Creating Phyloseq Object
@@ -220,16 +223,18 @@ Here we will filtering out (prune) samples with low read counts (<1000). This is
 
 ```{r pruning_low_read_samples}
 
-# creating a phyloseq object called pruned_all_data that only includes samples with a sequence depth >1000
-pruned_phyco <- prune_samples(sample_sums(phylo_all) > 1000, phylo_all)
+# creating a phyloseq object called pruned_all_data that only includes samples with a sequence depth of at least one read.
+pruned_phyco <- prune_samples(sample_sums(phylo_all) > 0, phylo_all)
 #pruned_all_data
 
 #creating a dataframe with a column for the sequence counts of each sample
+#The deseq2 software will choose a threshold that maximized statistical power.
+#https://support.bioconductor.org/p/79855/#:~:text=While%20it%20is%20not%20necessary,speed%20of%20the%20transformation%20and
 pruned_phyco_sum_df <- data.frame(sum = sample_sums(pruned_phyco))
 #histogram of sample read counts
 ggplot(pruned_phyco_sum_df, aes(x = sum)) + 
   geom_histogram(color = "black", fill = "purple", binwidth = 500) +
-  ggtitle("Distribution of pruned sample sequencing depth (>500 reads)") + 
+  ggtitle("Distribution of pruned sample sequencing depth (at least 1 read)") + 
   xlab("Read counts") +
   geom_vline(xintercept = 1000, linetype="dotted", color = "blue", size=0.5) +
   theme(axis.title.y = element_blank())
@@ -237,11 +242,10 @@ ggplot(pruned_phyco_sum_df, aes(x = sum)) +
 
 ## Removing non-bacterial reads
 
-We will clean up our dataset to only include OTUs that are Bacterial, removing both mitochondiral and chloroplast OTUs. Here, we also remove test, mock community, and negative water controls that were sequenced. At the end of the chunk we create two new phyloseq objects. The first is a copy of our current one that we now call avbot.raw. Then in the second one, we log-transform the sample counts and write that into the phyloseq object called `avbot`. Why might we want to log-transform the sample counts?
+We will clean up our dataset to only include OTUs that are Bacterial, removing both mitochondrial and chloroplast OTUs. At the end of the chunk we create two new phyloseq objects. The first is a copy of our current one that we now call pruned_phyco_clean.raw. Then in the second one, we log-transform the sample counts and write that into the phyloseq object called `pruned_phyco_clean`.
 
 ```{r Subset_Phyco}
 
-#plot_bar(phyco, x="sample_type", fill="Phylum") # takes a long time
 
 pruned_phyco_clean <- pruned_phyco %>%
   subset_taxa(
@@ -259,122 +263,43 @@ pruned_phyco_clean <- transform_sample_counts(pruned_phyco_clean.raw, function(x
 
 ```
 ```{r phyla colors}
-phyla.colors <- c(Acidobacteria = "grey26", 
-                  Actinobacteria = "palevioletred2", 
-                  Alphaproteobacteria = "steelblue4", 
-                  Armatimonadetes = "red", 
-                  Bacteroidetes = "darkorange", 
-                  "BD1-5" = "chartreuse", 
-                  Betaproteobacteria = "royalblue", 
-                  Caldiserica = "black",
-                  "WS1" = "red", 
-                  "WPS-2" = "aquamarine1", 
-                  "Candidate_division_OD1" = "#6DDE88", 
-                  "Candidate_division_OP3" = "yellow1", 
-                  "Candidate_division_OP8" = "goldenrod1", 
-                  "Candidate_division_OP11" = "chocolate4", 
-                  "Candidate_division_SR1" = "tan3", 
-                  "Candidate_division_TM7" = "skyblue1", 
-                  "Candidate_division_WS3" = "magenta", 
-                  "Candidate_Division_CK_1C4_19" = "darkseagreen", 
-                  "Candidate_Division_NPL_UPA2" = "darkmagenta", 
-                  "Candidate_Division_RF3" = "bisque", 
-                  "Candidate_Division_TA06" = "cadetblue",  
-                  "Candidate_Division_TM6" = "plum", 
-                  Chlamydiae="violet", 
-                  Chlorobi="cyan2", 
-                  Chloroflexi="darkgreen", 
-                  Crenarchaeota = "khaki1", 
-                  phycobacteria = "chartreuse3", 
-                  Deferribacteres = "slateblue3", 
-                  "Deinococcus-Thermus" = "violetred", 
-                  Dictyoglomi = "cornsilk4", 
-                  Deltaproteobacteria = "deepskyblue", 
-                  "Deinococcus-Thermus" = "lightskyblue1", 
-                  Elusimicrobia = "violetred4",
-                  Epsilonproteobacteria = "lightskyblue", 
-                  Euryarchaeota = "khaki2", 
-                  Fibrobacteres = "hotpink", 
-                  Firmicutes = "blue4", 
-                  FGL7S = "palevioletred1", 
-                  Fusobacteria = "slateblue1",
-                  Euglenozoa = "#652926", 
-                  Gammaproteobacteria = "plum2", 
-                  Gemmatimonadetes="black", 
-                  GOUTA4 = "plum1", 
-                  "Hyd24-12" = "sienna2",
-                  Ignavibacteriae = "sienna2", 
-                  JTB23 = "seashell2", 
-                  Lentisphaerae = "cyan4", 
-                  "MVP_21" = "lightskyblue1", 
-                  Nitrospirae = "yellow1", 
-                  "NPL-UPA2"="#652926", 
-                  Hydrogenedentes = "mediumpurple4", 
-                  Planctomycetes = "mediumorchid3", 
-                  Proteobacteria = "deepskyblue", 
-                  Retaria ="lightsalmon3", 
-                  Kiritimatiellaeota = "lightskyblue2", 
-                  Patescibacteria = "orangered", 
-                  Spirochaetes = "gold2", 
-                  Spirochaetae = "gold3", 
-                  Synergistetes = "olivedrab1", 
-                  Tenericutes="pink", 
-                  Thaumarchaeota = "khaki3", 
-                  BRC1 = "chocolate1", 
-                  Halanaerobiaeota = "lightsalmon3",
-                  Dependentiae = "rosybrown3", 
-                  TM6 = "olivedrab", 
-                  unclassified = "grey", 
-                  Verrucomicrobia = "purple4", 
-                  Epsilonbacteraeota = "palegreen", 
-                  Bacteria_unclassified = "darkgrey")
 
-get_random_grid_colors <- function(ncolor,seed = sample_seq(1, 1000000, 1)) {
-  require(uniformly)
-  set.seed(seed)
-  print(seed)
-  ngrid <- ceiling(ncolor^(1/3))
-  x <- seq(0,1,length=ngrid+1)[1:ngrid]
-  dx <- (x[2] - x[1])/2
-  x <- x + dx
-  origins <- expand.grid(x,x,x)
-  nbox <- nrow(origins) 
-  RGB <- vector("numeric",nbox)
-  for(i in seq_len(nbox)) {
-    rgb <- runif_in_cube(n=1,d=3,O=as.numeric(origins[i,]),r=dx)
-    RGB[i] <- rgb(rgb[1,1],rgb[1,2],rgb[1,3])
-  }
-  index <- sample(seq(1,nbox),ncolor)
-  RGB[index]
-} 
-
+#This generates a random color palette that is distinct. Run it until you get a seed that you like, and then put it as the argument for "seed".
 colors <- get_random_grid_colors(9, seed = 904057)
 ```
 #DESeq2 source code and guide https://bioconductor.org/packages/release/workflows/vignettes/rnaseqGene/inst/doc/rnaseqGene.html#the-deseqdataset-object-sample-information-and-the-design-formula
 ```{r Best Variance Estimate DESEQ2}
+#Control for the effect of host species while testing for the effect of time
 phyco_deseq <- phyloseq_to_deseq2(pruned_phyco_clean.raw, ~ host_species + time)
-nrow(phyco_deseq)
-#Remove rows that have no data at all or only a single count across all samples
-keep <- rowSums(counts(phyco_deseq)) > min(rowSums(counts(phyco_deseq)))
-phyco_deseq <- phyco_deseq[keep,]
-nrow(phyco_deseq)
+phyco_deseq$host_species %<>% relevel("natural")
+phyco_deseq$host_species
+phyco_deseq <- DESeq(phyco_deseq, test = "Wald", fitType = "local", )
+#Look at the comparisons that DeSeq is making.
+resultsNames(phyco_deseq)
+results_phyco_deseq <- results(phyco_deseq)
+# nrow(phyco_deseq)
+# #Remove rows that have no data at all or only a single count across all samples
+# keep <- rowSums(counts(phyco_deseq)) > min(rowSums(counts(phyco_deseq)))
+# phyco_deseq <- phyco_deseq[keep,]
+# nrow(phyco_deseq)
 
+#We set blind to false because we are expecting that our parameters will have some kind of effect on the counts
 vsd <- varianceStabilizingTransformation(phyco_deseq, blind = FALSE)
 
 dds <- estimateSizeFactors(phyco_deseq)
 
-df <- bind_rows(
-  as_data_frame(log2(counts(dds, normalized=TRUE)[, 1:2]+1)) %>%
-         mutate(transformation = "log2(x + 1)"),
-  as_data_frame(assay(vsd)[, 1:2]) %>% mutate(transformation = "vst"))
-  
-colnames(df)[1:2] <- c("x", "y")  
-
-lvls <- c("log2(x + 1)", "vst")
-df$transformation <- factor(df$transformation, levels=lvls)
-
-ggplot(df, aes(x = x, y = y)) + geom_hex(bins = 80) +
-  coord_fixed() + facet_grid( . ~ transformation) 
+# df <- bind_rows(
+#   as_data_frame(log2(counts(dds, normalized=TRUE)[, 1:2]+1)) %>%
+#          mutate(transformation = "log2(x + 1)"),
+#   as_data_frame(assay(vsd)[, 1:2]) %>% mutate(transformation = "vst"))
+#   
+# colnames(df)[1:2] <- c("x", "y")  
+# 
+# lvls <- c("log2(x + 1)", "vst")
+# df$transformation <- factor(df$transformation, levels=lvls)
+# 
+# ggplot(df, aes(x = x, y = y)) + geom_hex(bins = 80) +
+#   coord_fixed() + facet_grid( . ~ transformation) 
 
 sampleDists <- dist(t(assay(vsd)))
 sampleDists
@@ -405,7 +330,7 @@ mat  <- mat - rowMeans(mat)
 anno <- as.data.frame(colData(vsd)[, c("host_species","time")])
 ann_colors = list(
   time = c("0" = "cyan3", "3"= "darkorchid1", "31" = "darkgoldenrod1"),
-  host_species = c(Chlorella = "#7FC97F", Coelastrum = "#BEAED4", Scenedesmus = "#E0115F",Monoraphidium = "#FDC086", Selenastrum = "#386CB0",natural = "#D4D5B0", control = "darkseagreen1")
+  host_species = c(Chlorella = "#7FC97F", Coelastrum = "#BEAED4", Scenedesmus = "#E0115F",Monoraphidium = "#FDC086", Selenastrum = "#386CB0",natural = "#D4D5B0", control = "skyblue1")
 )
 pheatmap(mat, annotation_col = anno, color = colorRampPalette(rev(brewer.pal(n = 11, name =
   "RdYlBu")))(100), annotation_colors = ann_colors, legend_labels = c("time" = "Time", "host_species" = "Host Species"), width = 14, filename = "./figures/variance_OTU_phycospheres.png")
@@ -416,32 +341,36 @@ pheatmap(mat, annotation_col = anno, color = colorRampPalette(rev(brewer.pal(n =
 pcaData <- plotPCA(vsd, intgroup = c("host_species", "time"), returnData = TRUE)
 
 percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+
 ggplot(pcaData, aes(x = PC1, y = PC2, color = host_species, shape = time)) +
   geom_point(size =3) +
   xlab(paste0("PC1: ", percentVar[1], "% variance")) +
   ylab(paste0("PC2: ", percentVar[2], "% variance")) +
   coord_fixed() +
-  ggtitle("PCA with VST data")
+  ggtitle("PCA with VST data") +
+  scale_color_manual(values = ann_colors$host_species)
 
-
-
+#Multi-dimensional scaling plot. Useful for when you don't have a matrix of data, only a matrix of distances.
 mds <- as.data.frame(colData(vsd))  %>%
          cbind(cmdscale(sampleDistMatrix))
 ggplot(mds, aes(x = `1`, y = `2`, color = host_species, shape = time)) +
-  geom_point(size = 3) + coord_fixed() + ggtitle("MDS with VST data")
+  geom_point(size = 3) + coord_fixed() + ggtitle("MDS with VST data") +
+  scale_color_manual(values = ann_colors$host_species)
 
 
 mdsPois <- as.data.frame(colData(dds)) %>%
    cbind(cmdscale(samplePoisDistMatrix))
 ggplot(mdsPois, aes(x = `1`, y = `2`, color = host_species, shape = time)) +
-  geom_point(size = 3) + coord_fixed() + ggtitle("MDS with PoissonDistances")
+  geom_point(size = 3) + coord_fixed() + ggtitle("MDS with PoissonDistances") +
+  scale_color_manual(values = ann_colors$host_species)
 ```
 ```{r DESeq2 Analysis}
 #Do this for a simplified version so that ~"Design" only has to be "Group" for host species and time.
 #phyco_deseq$Group <- factor(paste0(phyco_deseq$host_species, phyco_deseq$time))
 phyco_deseq$host_species %<>% relevel("natural", "control", "Chlorella", "Coelastrum", "Scenedesmus", "Monoraphidium", "Selenastrum")
 phyco_deseq$host_species
-phyco_deseq <- DESeq(phyco_deseq, test = "Wald", model = "Parametric")
+phyco_deseq <- DESeq(phyco_deseq, test = "LRT", reduced = ~time)
 
 
 res <- results(phyco_deseq)
@@ -582,13 +511,12 @@ ggplot(sigtabAsh, aes(x=Genus, y=log2FoldChange, color=Phylum)) +
 # this gives log2(n + 1)
 ntd <- normTransform(phyco_deseq)
 select <- order(rowMeans(counts(phyco_deseq, normalized=TRUE)),
-                decreasing=TRUE) [1:20]
+                decreasing=TRUE) [1:25]
 df <- as.data.frame(colData(phyco_deseq)[,c("time","host_species")])
 
-pheatmap(assay(ntd)[select,], cluster_rows=FALSE, show_rownames=TRUE,
+pheatmap(assay(ntd)[select,], cluster_rows=TRUE, show_rownames=TRUE,show_colnames = FALSE,
          cluster_cols=TRUE, annotation_col=df)
 
-vsd <- vst(phyco_deseq, blind = FALSE)
 
 
 
