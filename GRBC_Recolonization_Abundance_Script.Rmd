@@ -31,7 +31,7 @@ knitr::opts_chunk$set(eval = TRUE,
                       engine = "R", # Chunks will always have R code, unless noted
                       error = TRUE,
                       #Figure options
-                      dev = c("png", "pdf"),
+                      dev = c("png"),
                       fig.path="./figures",  
                       fig.align = "center", 
                       fig.width = 8,
@@ -139,107 +139,84 @@ brewer.pal(n = 5, 'Accent') # "#7FC97F" "#BEAED4" "#FDC086" "#FFFF99" "#386CB0"
 host_colors <- c("#7FC97F", "#BEAED4","#E0115F", "#FDC086","#386CB0")
 
 ```
-
-``` {r Import}
+```{r Creating metadata and correcting samplenames, eval=FALSE, include=FALSE}
 
 #Create a list of jar numbers and their respective host species.
-jar_num <- as_tibble(paste0("J", 1:45, "-")) %>%
-  rename("jar_no" = value) %>%
-  mutate(host_species = ifelse(str_detect(jar_no, paste0("J", 1:9, "-")), "Chlorella",
-                        ifelse(str_detect(jar_no, paste0("J", 10:18, "-")), "Coelastrum",
-                        ifelse(str_detect(jar_no, paste0("J", 19:27, "-")), "Scenedesmus",
-                        ifelse(str_detect(jar_no, paste0("J", 28:36, "-")), "Monoraphidium",
-                        ifelse(str_detect(jar_no, paste0("J", 37:45, "-")), "Selenastrum", ""))))))
-jar_no_grbc <- read_csv(file = "Jar_Number_Correction.csv", na = "empty") %>%
-  mutate(jar = paste0(jar_no, "-")) %>%
-  select(Isolate_Number, jar)
+####Used to create metadata for GRBC Isolates to give host information, not relevant in actual data analysis.
+# jar_num <- as_tibble(paste0("J", 1:45, "-")) %>%
+#   rename("jar_no" = value) %>%
+#   mutate(host_species = ifelse(str_detect(jar_no, paste0("J", 1:9, "-")), "Chlorella",
+#                         ifelse(str_detect(jar_no, paste0("J", 10:18, "-")), "Coelastrum",
+#                         ifelse(str_detect(jar_no, paste0("J", 19:27, "-")), "Scenedesmus",
+#                         ifelse(str_detect(jar_no, paste0("J", 28:36, "-")), "Monoraphidium",
+#                         ifelse(str_detect(jar_no, paste0("J", 37:45, "-")), "Selenastrum", ""))))))
+# jar_no_grbc <- read_csv(file = "./outdated_data/Jar_Number_Correction.csv", na = "empty") %>%
+#   mutate(jar = paste0(jar_no, "-")) %>%
+#   select(Isolate_Number, jar) %>%
+#   rename(jar_no = jar) %>%
+#   inner_join(.,jar_num)
+# 
+# jar_no_grbc$Isolate_Number <-  sub('\\.','_', jar_no_grbc$Isolate_Number)
+# jar_no_wo_und <- jar_no_grbc %>%
+#   mutate(Isolate_Number = str_replace(Isolate_Number,"_DF","DF"),
+#          Isolate_Number = str_replace(Isolate_Number,"_D3","D3"),)
+# 
+# updated_names <- read_csv("./all_seqs/GRBC_sam_names.csv",
+#                           col_types = cols(...1 = col_skip())) %>%
+#   rename("Group" = value)
+# 
+# host_table <- rbind(jar_no_wo_und, jar_no_grbc) %>%
+#   mutate(Isolate_Number = str_replace(Isolate_Number, "DF", "D31")) %>%
+#   right_join(., updated_names, by = c("Isolate_Number"="Isolate")) %>%
+#   mutate(host_species = ifelse(str_detect(Group, "^S"), "Chlorella", host_species))
+# write.csv(host_table, "./all_seqs/GRBC_metadata.csv")
+```
 
-#Remove confidence scores at the end of each taxonomic ran
-#Import the data
-GRBC_Silva_132_tax <- read_tsv(file="GRBC_renamed.nr_v132.wang.taxonomy") %>%
-		rename_all(tolower) %>%  mutate(taxonomy=str_replace_all(string=taxonomy, pattern="\\(\\d*\\)", replacement="")) %>%
-		mutate(taxonomy=str_replace_all(string=taxonomy , pattern=";$", replacement="")) %>%
-		separate(taxonomy, into=c("domain", "phylum", "class", "order", "family", "genus"), sep=";") %>%
-  inner_join(jar_no_grbc, by = c("otu" = "Isolate_Number")) %>%
-  #Filter out genera that were not in the database, not helpful for our analysis
-  filter(!str_detect(genus, "unclassified")) %>%
-  filter(!str_detect(genus, "uncultured")) %>%
-  select("otu", "jar", everything()) %>%
-  #Replace DF with D31
-  lapply(function(x) {
-    gsub("DF", "D31", x)
-  }) %>%
-  as.tibble(.) %>%
-  mutate(host_species = ifelse(str_detect(jar, paste(jar_num$jar_no[1:9], collapse = "|")), "Chlorella",
-                        ifelse(str_detect(jar, paste(jar_num$jar_no[10:18], collapse = "|")), "Coelastrum",
-                        ifelse(str_detect(jar, paste(jar_num$jar_no[19:27], collapse = "|")), "Scenedesmus",
-                        ifelse(str_detect(jar, paste(jar_num$jar_no[28:36], collapse = "|")), "Monoraphidium",
-                        ifelse(str_detect(jar, paste(jar_num$jar_no[37:45], collapse = "|")), "Selenastrum", "NA"))))))
-
-GRBC_Freshwater2016_tax <- read_tsv(file="GRBC_renamed.FreshTrain18Aug2016.wang.taxonomy") %>%
-		rename_all(tolower) %>%  mutate(taxonomy=str_replace_all(string=taxonomy, pattern="\\(\\d*\\)", replacement="")) %>%
-		mutate(taxonomy=str_replace_all(string=taxonomy , pattern=";$", replacement="")) %>%
-		separate(taxonomy, into=c("domain", "phylum", "class", "order", "family", "genus"), sep=";") %>%
-  inner_join(jar_no_grbc, by = c("otu" = "Isolate_Number")) %>%
-  #Filter out genera that were not in the database, not helpful for our analysis
-  filter(!str_detect(genus, "unclassified")) %>%
-  filter(!str_detect(genus, "uncultured")) %>%
-  select("otu", "jar", everything()) %>%
-  #Replace DF with D31
-  lapply(function(x) {
-    gsub("DF", "D31", x)
-  }) %>%
-  as.tibble(.) %>%
-  mutate(host_species = ifelse(str_detect(jar, paste(jar_num$jar_no[1:9], collapse = "|")), "Chlorella",
-                        ifelse(str_detect(jar, paste(jar_num$jar_no[10:18], collapse = "|")), "Coelastrum",
-                        ifelse(str_detect(jar, paste(jar_num$jar_no[19:27], collapse = "|")), "Scenedesmus",
-                        ifelse(str_detect(jar, paste(jar_num$jar_no[28:36], collapse = "|")), "Monoraphidium",
-                        ifelse(str_detect(jar, paste(jar_num$jar_no[37:45], collapse = "|")), "Selenastrum", "NA"))))))
-
+``` {r Import Data}
 #Combine silva and freshwater dataframes
-GRBC_all_tax <- merge(GRBC_Freshwater2016_tax, GRBC_Silva_132_tax, all = TRUE) %>%
-  #Add a column to distinguish D3 and D31
-  mutate(time = ifelse(str_detect(otu, "_D31"), "D31", "D3"),
-         color = 
-          ifelse(host_species == "Chlorella", "#7FC97F", 
+# GRBC_all_tax <- merge(GRBC_Freshwater2016_tax, GRBC_Silva_132_tax, all = TRUE) %>%
+#   #Add a column to distinguish D3 and D31
+#   mutate(time = ifelse(str_detect(otu, "_D31"), "D31", "D3"),
+#          color = 
+#           ifelse(host_species == "Chlorella", "#7FC97F", 
+#           ifelse(host_species == "Coelastrum", "#BEAED4",
+#           ifelse(host_species == "Scenedesmus", "#E0115F",
+#           ifelse(host_species == "Monoraphidium", "#FDC086",
+#           ifelse(host_species == "Selenastrum", "#386CB0", "black")))))) %>%
+#   #genus name is too long, ruins later graphs.
+#   mutate(genus=str_replace_all(string=genus,
+#     pattern="Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium", replacement="A-N-P-R")) %>%
+#   #Rearrage columns in a readable order
+#   select(otu, jar, replicate, time, pond, color, everything())
+
+Phycosphere_tax <- read_tsv(file="./all_seqs/final.merge.asv.ASV.cons.taxonomy") %>%
+		rename_all(tolower) %>%  mutate(taxonomy=str_replace_all(string=taxonomy, pattern="\\(\\d*\\)", replacement="")) %>%
+		mutate(taxonomy=str_replace_all(string=taxonomy , pattern=";$", replacement="")) %>%
+    rename("asv" = otu) %>%
+		separate(taxonomy, into=c("domain", "phylum", "class", "order", "family", "genus"), sep=";") #%>%
+  # filter(!str_detect(genus, "unclassified")) %>%
+  # filter(!str_detect(genus, "uncultured")) %>%
+  # filter(!str_detect(genus, "Unknown")) 
+	
+Phycosphere_otu <- read_tsv("./all_seqs/final.merge.asv.shared", col_types=cols(Group=col_character())) %>%
+	select(-label, -numASVs) %>%
+ 	pivot_longer(cols=-Group, names_to="asv", values_to="count")%>%
+  filter(count > 0)
+sampledata <- read_csv("./all_seqs/GRBC_metadata.csv")
+
+#Create two separate dataframes with phycosphere and isolate data.
+jar_otu <- anti_join(Phycosphere_otu, sampledata)
+
+GRBC_otu <- inner_join(Phycosphere_otu, sampledata) %>%
+  mutate( color = 
+          ifelse(host_species == "Chlorella", "#7FC97F",
           ifelse(host_species == "Coelastrum", "#BEAED4",
           ifelse(host_species == "Scenedesmus", "#E0115F",
           ifelse(host_species == "Monoraphidium", "#FDC086",
-          ifelse(host_species == "Selenastrum", "#386CB0", "black")))))) %>%
-  #Add replicate info (R doesn't support index skipping like python, so this will have to do)
-  mutate(replicate = ifelse(
-  str_detect(jar,paste(jar_num$jar_no[c(1,4,7,10,13,16,19,22,25,28,31,34,37,40,43)], collapse = "|")), "1",
-                     ifelse(
-  str_detect(jar, paste(jar_num$jar_no[c(2,5,8,11,14,17,20,23,26,29,32,35,38,41,44)], collapse = "|")), "2",
-                     ifelse(
-  str_detect(jar, paste(jar_num$jar_no[c(3,6,9,12,15,18,21,24,27,30,33,36,39,42,45)], collapse = "|")), "3", "NA")))) %>%
-  #Add Pond info
-  mutate(pond = ifelse(
-  str_detect(jar, paste(jar_num$jar_no[c(1:3,10:12,19:21,28:30,37:39)], collapse = "|")), "1",
-                     ifelse(
-  str_detect(jar, paste(jar_num$jar_no[c(4:6,13:15,22:24,31:33,40:42)], collapse = "|")), "2",
-                     ifelse(
-  str_detect(jar, paste(jar_num$jar_no[c(7:9,16:18,25:27,34:36,43:45)], collapse = "|")), "3", "NA")))) %>%
-  #genus name is too long, ruins later graphs.
-  mutate(genus=str_replace_all(string=genus,
-    pattern="Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium", replacement="A-N-P-R")) %>%
-  #Rearrage columns in a readable order
-  select(otu, jar, replicate, time, pond, color, everything())
-
-Phycosphere_tax <- read_tsv(file="Phycosphere_stability.file.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.an.unique_list.0.03.cons.taxonomy.txt") %>%
-		rename_all(tolower) %>%  mutate(taxonomy=str_replace_all(string=taxonomy, pattern="\\(\\d*\\)", replacement="")) %>%
-		mutate(taxonomy=str_replace_all(string=taxonomy , pattern=";$", replacement="")) %>%
-		separate(taxonomy, into=c("domain", "phylum", "class", "order", "family", "genus"), sep=";") %>%
-  filter(!str_detect(genus, "unclassified")) %>%
-  filter(!str_detect(genus, "uncultured")) %>%
-  filter(!str_detect(genus, "Unknown")) 
-	
-Phycosphere_otu <- read_tsv("Phycosphere_stability.file.trim.contigs.good.unique.good.filter.unique.precluster.pick.pick.an.unique_list.shared.txt",col_types=cols(Group=col_character())) %>%
-	select(-label, -numOtus) %>%
- 	pivot_longer(cols=-Group, names_to="otu", values_to="count") 
-
+          ifelse(host_species == "Selenastrum", "#386CB0", "black"))))))
+                            
 #We need the number from this output to standardize counts below.
-Phycosphere_counts <- Phycosphere_otu %>%
+Phycosphere_counts <- jar_otu %>%
   #make the data table recognize samples
   group_by(Group) %>%
   summarize(n = sum(count)) %>%
@@ -249,62 +226,34 @@ Phycosphere_counts <- Phycosphere_otu %>%
 Phycosphere_otu_count <- inner_join(Phycosphere_otu, Phycosphere_counts, by = "Group") %>%
   mutate(rel_abund = count/total_count_group) %>%
   #Add Host Species Information
-    mutate(host_species = ifelse(str_detect(Group, paste(jar_num$jar_no[1:9], collapse = "|")), "Chlorella",
-                        ifelse(str_detect(Group, paste(jar_num$jar_no[10:18], collapse = "|")), "Coelastrum",
-                        ifelse(str_detect(Group, paste(jar_num$jar_no[19:27], collapse = "|")), "Scenedesmus",
-                        ifelse(str_detect(Group, paste(jar_num$jar_no[28:36], collapse = "|")), "Monoraphidium",
-                        ifelse(str_detect(Group, paste(jar_num$jar_no[37:45], collapse = "|")), "Selenastrum", "Natural Community")))))) %>%
-  #Add replicate info (R doesn't support index skipping like python, so this will have to do)
-  mutate(replicate = ifelse(
-  str_detect(Group,paste(jar_num$jar_no[c(1,4,7,10,13,16,19,22,25,28,31,34,37,40,43)], collapse = "|")), "1",
-                     ifelse(
-  str_detect(Group, paste(jar_num$jar_no[c(2,5,8,11,14,17,20,23,26,29,32,35,38,41,44)], collapse = "|")), "2",
-                     ifelse(
-  str_detect(Group, paste(jar_num$jar_no[c(3,6,9,12,15,18,21,24,27,30,33,36,39,42,45)], collapse = "|")), "3",
-  ifelse(str_detect(Group, "R1") | str_detect(Group, "-1"), "1", 
-  ifelse(str_detect(Group, "R2") | str_detect(Group, "-2"), "2",
-  ifelse(str_detect(Group, "R3"), "3", "NA"))))))) %>%
-  
-  #Add Pond info
-  mutate(pond = ifelse(
-  str_detect(Group,paste(jar_num$jar_no[c(1:3,10:12,19:21,28:30,37:39)], collapse = "|")), "1",
-                     ifelse(
-  str_detect(Group, paste(jar_num$jar_no[c(4:6,13:15,22:24,31:33,40:42)], collapse = "|")), "2",
-                     ifelse(
-  str_detect(Group, paste(jar_num$jar_no[c(7:9,16:18,25:27,34:36,43:45)], collapse = "|")), "3", 
-    ifelse(str_detect(Group, "P1"), "1", 
-    ifelse(str_detect(Group, "P2"), "2",
-    ifelse(str_detect(Group, "P3"), "3", "NA")))))))
+    mutate(host_species = ifelse(str_detect(Group, "Chlorella"), "Chlorella",
+                        ifelse(str_detect(Group, "Coelastrum"), "Coelastrum",
+                        ifelse(str_detect(Group, "Scenedesmus"), "Scenedesmus",
+                        ifelse(str_detect(Group, "Monoraphidium"), "Monoraphidium",
+                        ifelse(str_detect(Group, "Selenastrum"), "Selenastrum",
+                               "Natural Community"))))))
 
 Phycosphere_otu_D3 <- Phycosphere_otu_count %>% 
-  filter((str_detect(Group,"-D3-") | str_detect(Group, "P")) & str_detect(Group,"022um"))
-
+  filter((str_detect(Group,"D3$")))
 
 Phycosphere_otu_D31 <- Phycosphere_otu_count %>% 
-  filter(str_detect(Group,"-D31-") & str_detect(Group,"022um"))
-
-Phycosphere_otu_D3_3um <- Phycosphere_otu_count %>% 
-  filter((str_detect(Group,"-D3-")) & str_detect(Group,"30um") ) #D31 3.0um does not exist
-
-
+  filter(str_detect(Group,"D31"))
 
 ```
 
-```{r Phycosphere OTU D3/D31 Filtering 3 um}
-#Only 3.0um data from D3
-
+```{r Phycosphere OTU D3/D31 Filtering}
 #Separate D3 and D31 data
-agg_genus_data_D3_3um <- inner_join(Phycosphere_otu_D3_3um, Phycosphere_tax) %>% #Groups by otu automatically
-  group_by(genus, Group, host_species, replicate) %>% #Triplicate 1 is J1,2,3 and so on for each host species
+agg_genus_data_D3<- inner_join(Phycosphere_otu_D3, Phycosphere_tax) %>% #Groups by otu automatically
+  group_by(genus, Group, host_species) %>% #Triplicate 1 is J1,2,3 and so on for each host species
   summarize(agg_rel_abund=sum(rel_abund)) %>% #Add together OTUs of the same group that are identical to get an aggregate abundance for each genus
   ungroup() %>%
   mutate(time = "D3")
 
 
 #D3 Algal Host Genus Makeup
-colors <-   c(get_random_grid_colors(35, seed = 756810)) #Adjust the number to however many colors the graph says it needs upon error
+colors <-   c(get_random_grid_colors(20, seed = 756810)) #Adjust the number to however many colors the graph says it needs upon error
 
-top_genera_D3 <- agg_genus_data_D3_3um %>%
+top_genera_D3 <- agg_genus_data_D3 %>%
 		group_by(genus) %>%
 		summarize(median=median(agg_rel_abund)) %>%
 		arrange((desc(median))) %>% # keep this so that the genera are sorted properly
@@ -313,7 +262,7 @@ top_genera_D3 <- agg_genus_data_D3_3um %>%
 #view(top_genera_D3)
 
 #D3 Algal Host Genus Makeup Stacked Barplot
-plot_D3_3um <- agg_genus_data_D3_3um %>% filter (genus %in% top_genera_D3) %>%
+plot_D3 <- agg_genus_data_D3 %>% filter (genus %in% top_genera_D3) %>%
   #filter(triplicate == 1 | triplicate == 4 | triplicate == 7 | triplicate == 10 | triplicate == 13) %>% #Triplicates from Pond one
   group_by(genus, host_species) %>%
   summarize(avg_rel_abund = mean(agg_rel_abund)) %>% #Take average of all the groups for one host species
@@ -330,18 +279,18 @@ ggplot(aes(x = host_species, y = avg_rel_abund, fill = genus)) +
     axis.title.y = element_text(size = 9),
     plot.title = element_text(size = 14))+
   guides(fill = guide_legend(size =10)) +
-  labs( x = "Host Species", y = "Average Relative Abundance (Genus)", title = "Top 20 3.0um Day 3 Genera Abundance by Host Species", fill = "Genus")
+  labs( x = "Host Species", y = "Average Relative Abundance (Genus)", title = "Top 20 Day 3 Genera Abundance by Host Species", fill = "Genus")
 
 
 #Combine D3 and D31 plots using ggpubr
-ggarrange(plot_D3_3um + font("xlab", size = 10),
+ggarrange(plot_D3 + font("xlab", size = 10),
           common.legend = TRUE, legend = "bottom")
 ggsave(filename = "D3-D31 Phycosphere Comparison 3.0um.png",  dpi = 300, path = "./figures", width = 10, height = 8)
 ```
 
 ```{r Phycosphere OTU D3/D31 Filtering 0.22 um}
 #Separate D3 and D31 data
-agg_genus_data_D3 <- inner_join(Phycosphere_otu_D3, Phycosphere_tax) %>% #Groups by otu automatically
+agg_genus_data_D3 <- inner_join(Phycosphere_otu_D3, Phycosphere_tax) %>% #Groups by asv automatically
   group_by(genus, Group, host_species, pond) %>% #Triplicate 1 is J1,2,3 and so on for each host species
   summarize(agg_rel_abund=sum(rel_abund)) %>% #Add together OTUs of the same group that are identical to get an aggregate abundance for each genus
   ungroup() %>%
@@ -353,7 +302,7 @@ agg_genus_data_D3 <- inner_join(Phycosphere_otu_D3, Phycosphere_tax) %>% #Groups
     pattern="Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium", replacement="A-N-P-R")) 
 
 agg_genus_data_D31 <- inner_join(Phycosphere_otu_D31, Phycosphere_tax) %>% #Groups by otu automatically
-  group_by(genus, Group, host_species, pond) %>% #Triplicate 1 is J1,2,3 and so on for each host species
+  group_by(genus, Group, host_species) %>% #Triplicate 1 is J1,2,3 and so on for each host species
   summarize(agg_rel_abund=sum(rel_abund)) %>% #Add together OTUs of the same group that are identical to get an aggregate abundance for each genus
   ungroup() %>%
   # group_by(genus, triplicate, host_species) %>% #Average triplicate counts for each genus
@@ -458,15 +407,15 @@ ggplot(aes(x = host_species, y = agg_rel_abund, fill = genus)) +
   theme(axis.title.x = element_blank(), 
     axis.text.x = element_text(angle = 70, hjust = 1, size = 12))  +
   ylab("Relative Abundance (Genus) \n") +
-  ggtitle("GRBC D31/D3 Isolates by Triplicate")
+  ggtitle("GRBC D31/D3 Jars")
 
 ```
 
 ```{r GRBC Comparison}
 source("plot_functions.R")
 #Filter genus hits from GRBC silva and freshwater database hits
-Phycosphere_GRBC_D3 <- inner_join(GRBC_all_tax, agg_genus_data_D3) %>%
-  filter(!str_detect(otu, "D31")) %>%
+Phycosphere_GRBC_D3 <- inner_join(GRBC_otu, agg_genus_data_D3) %>%
+  filter(!str_detect(asv, "D31")) %>%
   group_by(genus, host_species, time, color) %>%
   summarize(avg_rel_abund = mean(agg_rel_abund)) %>% #Take average of all the groups for one host species
   ungroup() %>%
@@ -654,6 +603,8 @@ patchwork +
   axis.text.x = element_text(size = 10)
 )
 ggsave(filename = "Isolates D3-D31 Phycosphere Comparison.png",  dpi = 300, path = "./figures", width = 14, height = 18)
+
+ggsave(filename = "Isolates D3-D31 Phycosphere Comparison.pdf",  dpi = 300, path = "./figures", width = 14, height = 18)
 
 ```
 
